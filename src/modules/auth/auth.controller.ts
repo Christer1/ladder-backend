@@ -7,8 +7,9 @@ import { Public } from '../../common/decorators/public.decorator';
 import { ResponseMessage } from '../../common/decorators/response-message.decorator';
 import { EnvironmentVariables } from '../../config/env.validation';
 import { AuthService } from './auth.service';
-import { OtpSentResponse } from './dto/auth.response';
+import { OtpSentResponse, SessionResponse } from './dto/auth.response';
 import { CreatePinDto } from './dto/create-pin.dto';
+import { LoginDto } from './dto/login.dto';
 import { ResendOtpDto } from './dto/resend-otp.dto';
 import { SignupDto } from './dto/signup.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
@@ -47,14 +48,15 @@ export class AuthController {
     @Body() dto: VerifyOtpDto,
     @Res({ passthrough: true }) res: Response,
   ): Promise<void> {
-    const session = await this.authService.verifyOtp(dto);
-    res.cookie(this.cookieName, session.token, {
-      httpOnly: true,
-      secure: this.config.get('NODE_ENV', { infer: true }) === 'production',
-      sameSite: 'lax',
-      path: '/',
-      expires: session.expiresAt,
-    });
+    this.setSessionCookie(res, await this.authService.verifyOtp(dto));
+  }
+
+  @Public()
+  @Post('login')
+  @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Signed in.')
+  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response): Promise<void> {
+    this.setSessionCookie(res, await this.authService.login(dto));
   }
 
   @Post('pin')
@@ -72,6 +74,16 @@ export class AuthController {
   ): Promise<void> {
     await this.authService.logout(user.sessionId);
     res.clearCookie(this.cookieName, { path: '/' });
+  }
+
+  private setSessionCookie(res: Response, session: SessionResponse): void {
+    res.cookie(this.cookieName, session.token, {
+      httpOnly: true,
+      secure: this.config.get('NODE_ENV', { infer: true }) === 'production',
+      sameSite: 'lax',
+      path: '/',
+      expires: session.expiresAt,
+    });
   }
 
   private get cookieName(): string {

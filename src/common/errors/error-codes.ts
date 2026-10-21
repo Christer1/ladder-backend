@@ -19,6 +19,14 @@ export const ERROR_CODES = {
     status: HttpStatus.CONFLICT,
     message: 'An account with this email already exists.',
   },
+  INVALID_CREDENTIALS: {
+    status: HttpStatus.UNAUTHORIZED,
+    message: 'Email or password is incorrect.',
+  },
+  EMAIL_NOT_VERIFIED: {
+    status: HttpStatus.FORBIDDEN,
+    message: 'Verify your email to continue.',
+  },
   OTP_INVALID: { status: HttpStatus.BAD_REQUEST, message: 'The code you entered is incorrect.' },
   OTP_EXPIRED: {
     status: HttpStatus.BAD_REQUEST,
@@ -40,31 +48,33 @@ export const ERROR_CODES = {
     status: HttpStatus.CONFLICT,
     message: 'This credential is already verified.',
   },
-  BVN_MISMATCH: {
+  BVN_NOT_FOUND: {
     status: HttpStatus.UNPROCESSABLE_ENTITY,
-    message: 'We could not verify this BVN.',
+    message: 'We could not find this BVN.',
   },
-  NIN_MISMATCH: {
+  BVN_INVALID: {
     status: HttpStatus.UNPROCESSABLE_ENTITY,
-    message: 'We could not verify this NIN.',
+    message: 'This BVN is not valid.',
   },
-  DOCUMENT_REJECTED: {
+  BVN_DOB_MISMATCH: {
     status: HttpStatus.UNPROCESSABLE_ENTITY,
-    message: 'We could not verify this document.',
+    message: 'The date of birth does not match this BVN.',
   },
-  FILE_REQUIRED: { status: HttpStatus.BAD_REQUEST, message: 'Please attach a file.' },
-  FILE_TYPE_INVALID: {
-    status: HttpStatus.BAD_REQUEST,
-    message: 'Only PNG, JPG or PDF files are allowed.',
-  },
-  FILE_TOO_LARGE: { status: HttpStatus.BAD_REQUEST, message: 'File must be 5 MB or smaller.' },
-  CREDENTIAL_REQUIRED: {
-    status: HttpStatus.FORBIDDEN,
-    message: 'Verify a BVN, NIN or Government ID first.',
-  },
-  LIVENESS_FAILED: {
+  NIN_NOT_FOUND: {
     status: HttpStatus.UNPROCESSABLE_ENTITY,
-    message: 'Liveness check failed. Please try again.',
+    message: 'We could not find this NIN.',
+  },
+  NIN_INVALID: {
+    status: HttpStatus.UNPROCESSABLE_ENTITY,
+    message: 'This NIN is not valid.',
+  },
+  NIN_DOB_MISMATCH: {
+    status: HttpStatus.UNPROCESSABLE_ENTITY,
+    message: 'The date of birth does not match this NIN.',
+  },
+  EMAIL_SEND_FAILED: {
+    status: HttpStatus.BAD_GATEWAY,
+    message: 'We could not send the email. Please try again.',
   },
 } as const;
 

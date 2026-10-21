@@ -5,7 +5,7 @@ CREATE TYPE "UserStatus" AS ENUM ('PENDING', 'VERIFIED', 'SUSPENDED');
 CREATE TYPE "OtpPurpose" AS ENUM ('SIGNUP');
 
 -- CreateEnum
-CREATE TYPE "VerificationType" AS ENUM ('BVN', 'NIN', 'GOVERNMENT_ID', 'LIVENESS');
+CREATE TYPE "VerificationType" AS ENUM ('BVN', 'NIN');
 
 -- CreateEnum
 CREATE TYPE "VerificationStatus" AS ENUM ('PENDING', 'VERIFIED', 'FAILED');
@@ -14,8 +14,9 @@ CREATE TYPE "VerificationStatus" AS ENUM ('PENDING', 'VERIFIED', 'FAILED');
 CREATE TABLE "users" (
     "id" TEXT NOT NULL,
     "email" TEXT NOT NULL,
-    "date_of_birth" DATE NOT NULL,
+    "password_hash" TEXT NOT NULL,
     "pin_hash" TEXT,
+    "date_of_birth" DATE,
     "email_verified_at" TIMESTAMP(3),
     "ladder_id" TEXT,
     "status" "UserStatus" NOT NULL DEFAULT 'PENDING',
@@ -59,20 +60,6 @@ CREATE TABLE "verifications" (
 );
 
 -- CreateTable
-CREATE TABLE "documents" (
-    "id" TEXT NOT NULL,
-    "verification_id" TEXT NOT NULL,
-    "id_type" TEXT NOT NULL,
-    "storage_key" TEXT NOT NULL,
-    "mime_type" TEXT NOT NULL,
-    "size_bytes" INTEGER NOT NULL,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "documents_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
 CREATE TABLE "sessions" (
     "id" TEXT NOT NULL,
     "user_id" TEXT NOT NULL,
@@ -83,6 +70,21 @@ CREATE TABLE "sessions" (
     "updated_at" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "sessions_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "identity_records" (
+    "id" TEXT NOT NULL,
+    "type" "VerificationType" NOT NULL,
+    "number" TEXT NOT NULL,
+    "date_of_birth" DATE NOT NULL,
+    "first_name" TEXT NOT NULL,
+    "last_name" TEXT NOT NULL,
+    "is_valid" BOOLEAN NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "identity_records_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -103,11 +105,11 @@ CREATE UNIQUE INDEX "sessions_token_hash_key" ON "sessions"("token_hash");
 -- CreateIndex
 CREATE INDEX "sessions_user_id_idx" ON "sessions"("user_id");
 
--- AddForeignKey
-ALTER TABLE "verifications" ADD CONSTRAINT "verifications_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- CreateIndex
+CREATE UNIQUE INDEX "identity_records_type_number_key" ON "identity_records"("type", "number");
 
 -- AddForeignKey
-ALTER TABLE "documents" ADD CONSTRAINT "documents_verification_id_fkey" FOREIGN KEY ("verification_id") REFERENCES "verifications"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "verifications" ADD CONSTRAINT "verifications_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;

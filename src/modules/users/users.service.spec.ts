@@ -20,22 +20,26 @@ describe('UsersService', () => {
     service = new UsersService(repo);
   });
 
-  it('rejects signup for an email that finished onboarding', async () => {
-    repo.findByEmail.mockResolvedValue(user({ pinHash: 'hash' }));
-    await expect(service.createPending('ada@example.com', new Date())).rejects.toMatchObject({
+  it('rejects signup for an email that is already verified', async () => {
+    repo.findByEmail.mockResolvedValue(user({ emailVerifiedAt: new Date() }));
+    await expect(service.createPending('ada@example.com', 'hash')).rejects.toMatchObject({
       code: 'EMAIL_TAKEN',
     });
   });
 
-  it('issues a Ladder ID in the LID-XXXX-XXXX format', async () => {
+  it('issues a Ladder ID and stores the verified date of birth', async () => {
     repo.findById.mockResolvedValue(user());
     repo.update.mockImplementation(async (_id, data) =>
       user({ ladderId: data.ladderId as string }),
     );
 
-    const result = await service.completeVerification('user-1');
+    const result = await service.completeVerification('user-1', new Date('1990-05-17'));
 
     expect(result.ladderId).toMatch(/^LID-[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+    expect(repo.update).toHaveBeenCalledWith(
+      'user-1',
+      expect.objectContaining({ dateOfBirth: new Date('1990-05-17'), status: 'VERIFIED' }),
+    );
   });
 
   it('retries when a generated Ladder ID already exists', async () => {
@@ -48,7 +52,7 @@ describe('UsersService', () => {
       .mockRejectedValueOnce(collision)
       .mockResolvedValueOnce(user({ ladderId: 'LID-AAAA-BBBB' }));
 
-    await expect(service.completeVerification('user-1')).resolves.toHaveProperty(
+    await expect(service.completeVerification('user-1', new Date())).resolves.toHaveProperty(
       'ladderId',
       'LID-AAAA-BBBB',
     );

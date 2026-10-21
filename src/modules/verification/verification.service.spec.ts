@@ -3,18 +3,14 @@ import { User, Verification, VerificationStatus, VerificationType } from '@prism
 import { randomBytes } from 'crypto';
 import { decrypt } from '../../common/utils/crypto';
 import { IdentityProvider } from '../../integrations/identity/identity.provider';
-import { StorageService } from '../../integrations/storage/storage.service';
 import { UsersService } from '../users/users.service';
 import { VerificationRepository } from './verification.repository';
 import { VerificationService } from './verification.service';
 
 const KEY = randomBytes(32).toString('base64');
-const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0]);
+const DOB = '1990-05-17';
 
-const readyUser = { id: 'user-1', pinHash: 'hash', ladderId: null } as User;
-
-const file = (buffer: Buffer): Express.Multer.File =>
-  ({ buffer, size: buffer.length, mimetype: 'image/png' }) as Express.Multer.File;
+const readyUser = { id: 'user-1', pinHash: 'hash', dateOfBirth: null, ladderId: null } as User;
 
 const verification = (type: VerificationType, status: VerificationStatus): Verification =>
   ({ id: `v-${type}`, type, status }) as Verification;
@@ -26,7 +22,6 @@ const expectCode = async (promise: Promise<unknown>, code: string) => {
 describe('VerificationService', () => {
   let repo: jest.Mocked<VerificationRepository>;
   let users: jest.Mocked<UsersService>;
-  let storage: jest.Mocked<StorageService>;
   let provider: jest.Mocked<IdentityProvider>;
   let service: VerificationService;
 
@@ -35,7 +30,6 @@ describe('VerificationService', () => {
       findAllByUser: jest.fn().mockResolvedValue([]),
       findOne: jest.fn().mockResolvedValue(null),
       upsert: jest.fn(async (_userId, type, data) => verification(type, data.status!)),
-      createDocument: jest.fn(),
     } as unknown as jest.Mocked<VerificationRepository>;
     users = {
       findById: jest.fn().mockResolvedValue(readyUser),
@@ -43,94 +37,79 @@ describe('VerificationService', () => {
         .fn()
         .mockResolvedValue({ ...readyUser, ladderId: 'LID-ABCD-EFGH' }),
     } as unknown as jest.Mocked<UsersService>;
-    storage = {
-      upload: jest.fn(async (key: string) => key),
-    } as unknown as jest.Mocked<StorageService>;
     provider = {
       name: 'test',
-      verifyBvn: jest.fn().mockResolvedValue({ isVerified: true }),
-      verifyNin: jest.fn().mockResolvedValue({ isVerified: false, failureReason: 'not found' }),
-      verifyDocument: jest.fn().mockResolvedValue({ isVerified: true }),
-      checkLiveness: jest.fn().mockResolvedValue({ isVerified: true }),
+      verifyBvn: jest.fn().mockResolvedValue({ isVerified: true, providerRef: 'rec-1' }),
+      verifyNin: jest.fn().mockResolvedValue({ isVerified: true, providerRef: 'rec-2' }),
     };
     const config = { get: jest.fn().mockReturnValue(KEY) } as unknown as ConfigService;
 
-    service = new VerificationService(repo, users, storage, provider, config as never);
+    service = new VerificationService(repo, users, provider, config as never);
   });
 
-  it('stores the BVN encrypted with only the last 4 in clear', async () => {
-    await expect(service.verifyBvn('user-1', '12345678901')).resolves.toEqual({
+  it('verifies a BVN with its date of birth and issues the Ladder ID', async () => {
+    await expect(service.verifyBvn('user-1', '22345678901', DOB)).resolves.toEqual({
       status: 'VERIFIED',
+      ladderId: 'LID-ABCD-EFGH',
     });
+
+    expect(provider.verifyBvn).toHaveBeenCalledWith('22345678901', DOB);
+    expect(users.completeVerification).toHaveBeenCalledWith('user-1', new Date(DOB));
+  });
+
+  it('stores the number encrypted with only the last 4 in clear', async () => {
+    await service.verifyNin('user-1', '71234568901', DOB);
 
     const [, , data] = repo.upsert.mock.calls[0];
     expect(data.last4).toBe('8901');
-    expect(data.valueEncrypted).not.toContain('12345678901');
-    expect(decrypt(data.valueEncrypted!, KEY)).toBe('12345678901');
+    expect(data.valueEncrypted).not.toContain('71234568901');
+    expect(decrypt(data.valueEncrypted!, KEY)).toBe('71234568901');
   });
 
-  it('records a failed NIN and returns NIN_MISMATCH', async () => {
-    await expectCode(service.verifyNin('user-1', '12345670000'), 'NIN_MISMATCH');
+  it.each([
+    ['NOT_FOUND', 'BVN_NOT_FOUND'],
+    ['INVALID', 'BVN_INVALID'],
+    ['DOB_MISMATCH', 'BVN_DOB_MISMATCH'],
+  ] as const)('maps a %s result to %s and records the failure', async (failure, code) => {
+    provider.verifyBvn.mockResolvedValue({ isVerified: false, failure });
+
+    await expectCode(service.verifyBvn('user-1', '22345678901', DOB), code);
     expect(repo.upsert).toHaveBeenCalledWith(
       'user-1',
-      'NIN',
-      expect.objectContaining({ status: 'FAILED' }),
+      'BVN',
+      expect.objectContaining({ status: 'FAILED', failureReason: failure }),
     );
+    expect(users.completeVerification).not.toHaveBeenCalled();
+  });
+
+  it('uses NIN error codes for NIN failures', async () => {
+    provider.verifyNin.mockResolvedValue({ isVerified: false, failure: 'INVALID' });
+    await expectCode(service.verifyNin('user-1', '71234568901', DOB), 'NIN_INVALID');
+  });
+
+  it('requires the second credential to match the already verified date of birth', async () => {
+    users.findById.mockResolvedValue({ ...readyUser, dateOfBirth: new Date(DOB) });
+
+    await expectCode(service.verifyNin('user-1', '71234568901', '1985-01-01'), 'NIN_DOB_MISMATCH');
+    expect(provider.verifyNin).not.toHaveBeenCalled();
   });
 
   it('requires a PIN before verification', async () => {
     users.findById.mockResolvedValue({ ...readyUser, pinHash: null });
-    await expectCode(service.verifyBvn('user-1', '12345678901'), 'PIN_REQUIRED');
+    await expectCode(service.verifyBvn('user-1', '22345678901', DOB), 'PIN_REQUIRED');
   });
 
-  it('rejects re-verifying a verified step', async () => {
+  it('rejects re-verifying a verified credential', async () => {
     repo.findOne.mockResolvedValue(verification('BVN', 'VERIFIED'));
-    await expectCode(service.verifyBvn('user-1', '12345678901'), 'ALREADY_VERIFIED');
+    await expectCode(service.verifyBvn('user-1', '22345678901', DOB), 'ALREADY_VERIFIED');
   });
 
-  it('rejects files whose bytes are not PNG/JPEG/PDF', async () => {
-    const fake = file(Buffer.from('not really a png'));
-    await expectCode(
-      service.uploadGovernmentId('user-1', 'NATIONAL_ID_CARD', fake),
-      'FILE_TYPE_INVALID',
-    );
-    expect(storage.upload).not.toHaveBeenCalled();
-  });
-
-  it('stores the government ID and records the document', async () => {
-    await service.uploadGovernmentId('user-1', 'NATIONAL_ID_CARD', file(PNG));
-
-    expect(storage.upload).toHaveBeenCalledWith(
-      expect.stringMatching(/^documents\/user-1\//),
-      PNG,
-      'image/png',
-    );
-    expect(repo.createDocument).toHaveBeenCalledWith(
-      expect.objectContaining({ idType: 'NATIONAL_ID_CARD', mimeType: 'image/png' }),
-    );
-  });
-
-  it('requires a verified credential before liveness', async () => {
-    await expectCode(service.submitLiveness('user-1', file(PNG)), 'CREDENTIAL_REQUIRED');
-  });
-
-  it('issues the Ladder ID after liveness passes', async () => {
-    repo.findAllByUser.mockResolvedValue([verification('BVN', 'VERIFIED')]);
-
-    await expect(service.submitLiveness('user-1', file(PNG))).resolves.toEqual({
-      status: 'VERIFIED',
-      ladderId: 'LID-ABCD-EFGH',
-    });
-  });
-
-  it('reports NOT_STARTED for steps with no attempt', async () => {
+  it('reports NOT_STARTED for credentials with no attempt', async () => {
     repo.findAllByUser.mockResolvedValue([verification('BVN', 'VERIFIED')]);
 
     await expect(service.getStatus('user-1')).resolves.toEqual({
       bvn: 'VERIFIED',
       nin: 'NOT_STARTED',
-      governmentId: 'NOT_STARTED',
-      liveness: 'NOT_STARTED',
       ladderId: null,
     });
   });
