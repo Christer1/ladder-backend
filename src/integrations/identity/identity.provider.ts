@@ -1,25 +1,17 @@
 // Contract every identity vendor adapter implements. Services depend on this, never on a vendor SDK.
 export const IDENTITY_PROVIDER = Symbol('IDENTITY_PROVIDER');
 
-export interface PersonMatch {
-  email: string;
-  dateOfBirth: Date;
-}
+export type IdentityFailure = 'NOT_FOUND' | 'INVALID' | 'DOB_MISMATCH';
 
 export interface IdentityResult {
   isVerified: boolean;
   providerRef?: string;
-  failureReason?: string;
+  failure?: IdentityFailure;
 }
 
 export interface IdentityProvider {
   readonly name: string;
-  verifyBvn(bvn: string, person: PersonMatch): Promise<IdentityResult>;
-  verifyNin(nin: string, person: PersonMatch): Promise<IdentityResult>;
-  verifyDocument(input: {
-    idType: string;
-    file: Buffer;
-    mimeType: string;
-  }): Promise<IdentityResult>;
-  checkLiveness(input: { selfie: Buffer; mimeType: string }): Promise<IdentityResult>;
+  // dateOfBirth is an ISO date string: YYYY-MM-DD.
+  verifyBvn(bvn: string, dateOfBirth: string): Promise<IdentityResult>;
+  verifyNin(nin: string, dateOfBirth: string): Promise<IdentityResult>;
 }

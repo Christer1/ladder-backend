@@ -2,31 +2,22 @@ import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { IdentityProvider, IdentityResult } from './identity.provider';
 
-// Development/test only (blocked in production by env validation).
-// Numbers ending in "0000" fail so error states can be exercised.
+// No database needed; used by tests. Numbers ending in "0000" are not found, "1111" are invalid.
 @Injectable()
 export class MockIdentityProvider implements IdentityProvider {
   readonly name = 'mock';
 
   async verifyBvn(bvn: string): Promise<IdentityResult> {
-    return this.resultFor(!bvn.endsWith('0000'), 'BVN not found');
+    return this.check(bvn);
   }
 
   async verifyNin(nin: string): Promise<IdentityResult> {
-    return this.resultFor(!nin.endsWith('0000'), 'NIN not found');
+    return this.check(nin);
   }
 
-  async verifyDocument(): Promise<IdentityResult> {
-    return this.resultFor(true);
-  }
-
-  async checkLiveness(): Promise<IdentityResult> {
-    return this.resultFor(true);
-  }
-
-  private resultFor(isVerified: boolean, failureReason?: string): IdentityResult {
-    return isVerified
-      ? { isVerified, providerRef: `mock_${randomUUID()}` }
-      : { isVerified, failureReason };
+  private check(value: string): IdentityResult {
+    if (value.endsWith('0000')) return { isVerified: false, failure: 'NOT_FOUND' };
+    if (value.endsWith('1111')) return { isVerified: false, failure: 'INVALID' };
+    return { isVerified: true, providerRef: `mock_${randomUUID()}` };
   }
 }

@@ -1,7 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { Otp, OtpPurpose, Session, User } from '@prisma/client';
 import { AppError } from '../../common/errors/app-error';
-import { hashSecret, sha256 } from '../../common/utils/crypto';
+import { hashSecret, sha256, verifySecret } from '../../common/utils/crypto';
 import { MailService } from '../../integrations/mail/mail.service';
 import { UsersService } from '../users/users.service';
 import { AuthRepository } from './auth.repository';
@@ -10,8 +10,9 @@ import { AuthService } from './auth.service';
 const user = (overrides: Partial<User> = {}): User => ({
   id: 'user-1',
   email: 'ada@example.com',
-  dateOfBirth: new Date('1990-01-01'),
+  passwordHash: '',
   pinHash: null,
+  dateOfBirth: null,
   emailVerifiedAt: null,
   ladderId: null,
   status: 'PENDING',
@@ -68,25 +69,57 @@ describe('AuthService', () => {
   });
 
   describe('signup', () => {
-    it('creates a pending user and emails a 6-digit code', async () => {
+    it('stores a hashed password and emails a 6-digit code', async () => {
       users.createPending.mockResolvedValue(user());
 
-      const result = await service.signup({ email: 'ada@example.com', dateOfBirth: '1990-01-01' });
+      const result = await service.signup({ email: 'ada@example.com', password: 'secret123' });
 
+      const [, passwordHash] = users.createPending.mock.calls[0];
+      expect(passwordHash).not.toContain('secret123');
+      await expect(verifySecret(passwordHash, 'secret123')).resolves.toBe(true);
       expect(result.otpExpiresIn).toBeGreaterThan(0);
-      expect(repo.replaceOtp).toHaveBeenCalled();
       expect(mail.sendOtp).toHaveBeenCalledWith(
         'ada@example.com',
         expect.stringMatching(/^\d{6}$/),
         expect.any(Number),
       );
     });
+  });
 
-    it('rejects users under the minimum age', async () => {
-      const today = new Date().toISOString().slice(0, 10);
+  describe('login', () => {
+    it('creates a session for the right password', async () => {
+      users.findByEmail.mockResolvedValue(
+        user({ passwordHash: await hashSecret('secret123'), emailVerifiedAt: new Date() }),
+      );
+
+      const session = await service.login({ email: 'ada@example.com', password: 'secret123' });
+
+      expect(session.token).toBeTruthy();
+    });
+
+    it('rejects a wrong password', async () => {
+      users.findByEmail.mockResolvedValue(
+        user({ passwordHash: await hashSecret('secret123'), emailVerifiedAt: new Date() }),
+      );
       await expectCode(
-        service.signup({ email: 'ada@example.com', dateOfBirth: today }),
-        'VALIDATION_FAILED',
+        service.login({ email: 'ada@example.com', password: 'wrong1234' }),
+        'INVALID_CREDENTIALS',
+      );
+    });
+
+    it('gives the same error for unknown emails', async () => {
+      users.findByEmail.mockResolvedValue(null);
+      await expectCode(
+        service.login({ email: 'nobody@example.com', password: 'secret123' }),
+        'INVALID_CREDENTIALS',
+      );
+    });
+
+    it('requires a verified email', async () => {
+      users.findByEmail.mockResolvedValue(user({ passwordHash: await hashSecret('secret123') }));
+      await expectCode(
+        service.login({ email: 'ada@example.com', password: 'secret123' }),
+        'EMAIL_NOT_VERIFIED',
       );
     });
   });
@@ -145,10 +178,14 @@ describe('AuthService', () => {
       await expectCode(service.resendOtp({ email: 'ada@example.com' }), 'OTP_RESEND_TOO_SOON');
     });
 
-    it('does not reveal unknown emails', async () => {
-      users.findByEmail.mockResolvedValue(null);
+    it('does not reveal unknown or already verified emails', async () => {
+      users.findByEmail.mockResolvedValueOnce(null);
+      users.findByEmail.mockResolvedValueOnce(user({ emailVerifiedAt: new Date() }));
 
       await expect(service.resendOtp({ email: 'nobody@example.com' })).resolves.toHaveProperty(
+        'otpExpiresIn',
+      );
+      await expect(service.resendOtp({ email: 'ada@example.com' })).resolves.toHaveProperty(
         'otpExpiresIn',
       );
       expect(mail.sendOtp).not.toHaveBeenCalled();

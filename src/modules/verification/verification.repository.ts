@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Document, Prisma, Verification, VerificationType } from '@prisma/client';
+import { Prisma, Verification, VerificationType } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 
 export type VerificationData = Omit<
@@ -26,9 +26,5 @@ export class VerificationRepository {
       create: { userId, type, ...data },
       update: data,
     });
-  }
-
-  createDocument(data: Prisma.DocumentUncheckedCreateInput): Promise<Document> {
-    return this.prisma.document.create({ data });
   }
 }

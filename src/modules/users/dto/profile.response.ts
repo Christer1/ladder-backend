@@ -10,7 +10,7 @@ export interface VerificationSummary {
 export interface ProfileResponse {
   id: string;
   email: string;
-  dateOfBirth: string; // YYYY-MM-DD
+  dateOfBirth: string | null; // YYYY-MM-DD, set once a BVN or NIN is verified
   ladderId: string | null;
   status: UserStatus;
   verifications: VerificationSummary[];

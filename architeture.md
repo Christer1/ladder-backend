@@ -4,7 +4,7 @@ Read this before writing code in `ladder-backend`. If a rule changes, update thi
 
 ## 1. What it does
 
-Serves `ladder-web`. A user signs up (email + DOB), verifies with an OTP, sets a 6-digit PIN, verifies identity (BVN / NIN / Government ID + liveness) and receives a reusable **Ladder ID** (e.g. `LID-7F3A-9K2D`). The API contract is in `../ladder-web/SCOPE_AND_RULES.md` §8. Keep the two in sync.
+Serves `ladder-web`. A user signs up (email + password), verifies their email with an OTP, sets a 6-digit PIN, verifies a BVN or NIN together with their date of birth, and receives a reusable **Ladder ID** (e.g. `LID-7F3A-9K2D`). Government ID upload and liveness (selfie) are **out of scope**. The API contract is in `../ladder-web/SCOPE_AND_RULES.md` §8. Keep the two in sync.
 
 ## 2. Stack
 
@@ -12,11 +12,10 @@ Serves `ladder-web`. A user signs up (email + DOB), verifies with an OTP, sets a
 |---|---|
 | Runtime / language | Node.js 22 LTS, TypeScript (`strict`) |
 | Framework | NestJS |
-| Database / ORM | PostgreSQL + Prisma |
+| Database / ORM | PostgreSQL on Supabase (schema `public`) + Prisma. `DATABASE_URL` = pooled (app), `DIRECT_URL` = direct (migrations) |
 | Validation | `class-validator` DTOs + global `ValidationPipe` |
 | Auth | Opaque session token in an httpOnly, SameSite cookie (Secure in production); only its SHA-256 hash is stored |
-| File storage | S3-compatible bucket (private) |
-| Email | Nodemailer over SMTP |
+| Email | Brevo transactional API, sender `official@bovaplay.com` |
 | Rate limiting | `@nestjs/throttler` |
 | Tests | Jest + Supertest |
 | Package manager | pnpm |
@@ -29,6 +28,7 @@ Server runs on port `4000`, all routes prefixed `/api/v1`.
 ladder-backend/
 ├── prisma/
 │   ├── schema.prisma          All models
+│   ├── seed.ts                Mock BVN/NIN registry (pnpm db:seed)
 │   └── migrations/
 ├── src/
 │   ├── main.ts                Bootstrap + listen
@@ -42,14 +42,13 @@ ladder-backend/
 │   │   ├── guards/            session.guard.ts
 │   │   ├── decorators/        current-user.decorator.ts, public.decorator.ts
 │   │   ├── errors/            app-error.ts, error-codes.ts
-│   │   └── utils/             crypto.ts, mask.ts, ladder-id.ts, file-signature.ts
+│   │   └── utils/             crypto.ts, mask.ts, ladder-id.ts
 │   ├── integrations/          Third parties, always behind an interface
-│   │   ├── identity/          identity.provider.ts (interface) + <vendor>.provider.ts (mock.provider.ts for dev)
-│   │   ├── storage/           storage.service.ts
-│   │   └── mail/              mail.service.ts
+│   │   ├── identity/          identity.provider.ts (interface), registry.provider.ts (seeded table), mock.provider.ts
+│   │   └── mail/              mail.service.ts (Brevo), templates/
 │   └── modules/               One folder per domain
-│       ├── auth/              signup, OTP, PIN, session
-│       ├── verification/      BVN, NIN, government ID, liveness, status
+│       ├── auth/              signup, login, OTP, PIN, session
+│       ├── verification/      BVN, NIN, status
 │       └── users/             profile (/profile/me)
 └── test/                      e2e tests (*.e2e-spec.ts)
 ```
@@ -81,7 +80,7 @@ Controller → Service → Repository → Prisma
 
 ## 5. API rules
 
-- REST, plural nouns, kebab-case paths: `/auth/otp/verify`, `/verification/government-id`.
+- REST, plural nouns, kebab-case paths: `/auth/otp/verify`, `/verification/bvn`.
 - Every response uses one envelope (added by the interceptor/filter, not by hand):
 
 ```ts
@@ -91,41 +90,46 @@ Controller → Service → Repository → Prisma
 
 - Error codes live in `common/errors/error-codes.ts` as UPPER_SNAKE_CASE. `message` must be safe to show to users.
 - Status codes: `200` read/ok, `201` created, `400` validation, `401` no session, `403` forbidden, `404`, `409` conflict (email taken), `422` verification failed, `429` rate limited.
-- Routes require a session by default. Opt out with `@Public()` (signup, OTP).
+- Routes require a session by default. Opt out with `@Public()` (signup, login, OTP).
 - Dates are ISO 8601 strings; field names are camelCase.
 
-Initial endpoints (same as the web contract):
+Endpoints:
 
-| Method | Path | Module |
-|---|---|---|
-| POST | `/auth/signup` | auth |
-| POST | `/auth/otp/verify` · `/auth/otp/resend` | auth |
-| POST | `/auth/pin` | auth |
-| POST | `/auth/logout` | auth |
-| POST | `/verification/bvn` · `/verification/nin` | verification |
-| POST | `/verification/government-id` (multipart) | verification |
-| POST | `/verification/liveness` (multipart) | verification |
-| GET | `/verification/status` | verification |
-| GET | `/profile/me` | users |
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| POST | `/auth/signup` | `{ email, password }` | `{ otpExpiresIn, resendAvailableIn }` |
+| POST | `/auth/otp/resend` | `{ email }` | same as signup |
+| POST | `/auth/otp/verify` | `{ email, code }` | sets session cookie |
+| POST | `/auth/login` | `{ email, password }` | sets session cookie |
+| POST | `/auth/pin` | `{ pin, confirmPin }` | `{}` |
+| POST | `/auth/logout` | – | clears cookie |
+| POST | `/verification/bvn` | `{ bvn, dateOfBirth }` | `{ status, ladderId }` |
+| POST | `/verification/nin` | `{ nin, dateOfBirth }` | `{ status, ladderId }` |
+| GET | `/verification/status` | – | `{ bvn, nin, ladderId }` (`NOT_STARTED`/`PENDING`/`VERIFIED`/`FAILED`) |
+| GET | `/profile/me` | – | profile with masked numbers |
+
+Rules: password ≥ 8 chars with a letter and a number. Login needs a verified email. BVN/NIN need the PIN first. `dateOfBirth` is `YYYY-MM-DD` and must match the registry record; after the first verified credential, the second must use the same date. The first verified BVN **or** NIN issues the Ladder ID.
+
+BVN/NIN errors (`422`): `BVN_NOT_FOUND`, `BVN_INVALID`, `BVN_DOB_MISMATCH` (and the `NIN_` equivalents). Brevo failure: `502 EMAIL_SEND_FAILED`.
 
 ## 6. Model rules
 
 - Table/model names are singular PascalCase in Prisma (`User`), mapped to snake_case plural in SQL (`@@map("users")`). Columns camelCase in code, snake_case in DB (`@map`).
 - Every model has `id String @id @default(uuid())`, `createdAt`, `updatedAt`.
 - Statuses are Prisma enums, never free strings.
-- Secrets are **hashed** (PIN, OTP: argon2). Identity numbers are **encrypted** (AES-256-GCM) and stored with a `last4` column for display.
-- Files are never stored in the DB, only the storage key.
+- Secrets are **hashed** (password, PIN, OTP: argon2). Identity numbers are **encrypted** (AES-256-GCM) and stored with a `last4` column for display.
+- Every table has Row Level Security enabled with no policies, so Supabase's REST API cannot read it. The backend connects as the owner.
 - Schema changes only via `prisma migrate`; never edit an applied migration.
 
 Starting models:
 
 | Model | Key fields |
 |---|---|
-| `User` | `email` (unique), `dateOfBirth`, `pinHash?`, `emailVerifiedAt?`, `ladderId?` (unique), `status` (`PENDING`/`VERIFIED`/`SUSPENDED`) |
+| `User` | `email` (unique), `passwordHash`, `pinHash?`, `dateOfBirth?` (from the first verified credential), `emailVerifiedAt?`, `ladderId?` (unique), `status` (`PENDING`/`VERIFIED`/`SUSPENDED`) |
 | `Otp` | `email`, `codeHash`, `purpose` (`SIGNUP`), `expiresAt`, `attempts`, `consumedAt?` |
-| `Verification` | `userId`, `type` (`BVN`/`NIN`/`GOVERNMENT_ID`/`LIVENESS`), `status` (`PENDING`/`VERIFIED`/`FAILED`), `valueEncrypted?`, `last4?`, `provider`, `providerRef?`, `failureReason?`, `verifiedAt?`. Unique on `(userId, type)` |
-| `Document` | `verificationId`, `idType`, `storageKey`, `mimeType`, `sizeBytes` |
+| `Verification` | `userId`, `type` (`BVN`/`NIN`), `status` (`PENDING`/`VERIFIED`/`FAILED`), `valueEncrypted?`, `last4?`, `provider`, `providerRef?`, `failureReason?` (`NOT_FOUND`/`INVALID`/`DOB_MISMATCH`), `verifiedAt?`. Unique on `(userId, type)` |
 | `Session` | `userId`, `tokenHash`, `expiresAt`, `revokedAt?` |
+| `IdentityRecord` | Mock registry: `type`, `number` (unique per type), `dateOfBirth`, `firstName`, `lastName`, `isValid` |
 
 ## 7. Naming
 
@@ -134,24 +138,21 @@ Starting models:
 | Files | kebab-case + role suffix | `verify-bvn.dto.ts`, `auth.service.ts` |
 | Classes | PascalCase + role | `VerifyBvnDto`, `AuthService` |
 | Methods / variables | camelCase, verbs for methods | `verifyBvn()`, `isExpired` |
-| Constants / error codes | UPPER_SNAKE_CASE | `OTP_TTL_SECONDS`, `BVN_MISMATCH` |
+| Constants / error codes | UPPER_SNAKE_CASE | `OTP_TTL_SECONDS`, `BVN_DOB_MISMATCH` |
 | Env vars | UPPER_SNAKE_CASE | `DATABASE_URL` |
 
 ## 8. Security (non-negotiable)
 
-- Never log PIN, OTP, BVN, NIN, documents or selfies. Mask identity numbers in responses (`*******8901`).
-- Rate-limit signup, OTP and PIN endpoints. Lock OTP after 5 wrong attempts.
-- Uploads: accept only PNG/JPEG/PDF, max 5 MB, checked by file signature, not just the extension. Bucket is private.
+- Never log passwords, PINs, OTPs, BVNs or NINs. Mask identity numbers in responses (`*******8901`).
+- Rate-limit all `/auth` endpoints. Lock OTP after 5 wrong attempts.
+- Tests never send real email: unit tests stub `fetch`, e2e tests replace `MailService`, and e2e runs on the local `ladder_test` database only.
 - Secrets come from env only; `.env` is never committed (`.env.example` is).
 - CORS allows only the `ladder-web` origin, with credentials.
 
 ## 9. Open questions
 
-Defaults are in code (marked `TODO`) until product confirms:
-1. Minimum age: 18 (`MIN_AGE_YEARS`).
-2. Government ID types (`GOVERNMENT_ID_TYPES`).
-3. One verified credential (BVN, NIN or Gov ID) is enough to start liveness.
-4. Identity vendor: `IDENTITY_PROVIDER=mock` until chosen (mock is blocked in production).
+1. Identity vendor: `IDENTITY_PROVIDER=registry` (seeded test data) until a real vendor is chosen. Both `registry` and `mock` are blocked in production.
+2. The previous project's tables were moved to the `old_public` schema in Supabase; nothing in this backend reads them.
 
 ## 10. Definition of done
 

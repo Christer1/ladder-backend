@@ -11,7 +11,6 @@ import {
   verifySecret,
 } from '../../common/utils/crypto';
 import {
-  MIN_AGE_YEARS,
   OTP_LENGTH,
   OTP_MAX_ATTEMPTS,
   OTP_RESEND_COOLDOWN_SECONDS,
@@ -23,6 +22,7 @@ import { UsersService } from '../users/users.service';
 import { AuthRepository } from './auth.repository';
 import { OtpSentResponse, SessionResponse } from './dto/auth.response';
 import { CreatePinDto } from './dto/create-pin.dto';
+import { LoginDto } from './dto/login.dto';
 import { ResendOtpDto } from './dto/resend-otp.dto';
 import { SignupDto } from './dto/signup.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
@@ -36,22 +36,27 @@ export class AuthService {
     private readonly config: ConfigService<EnvironmentVariables, true>,
   ) {}
 
-  async signup(dto: SignupDto): Promise<OtpSentResponse> {
-    const dateOfBirth = new Date(dto.dateOfBirth);
-    if (!this.isOldEnough(dateOfBirth)) {
-      throw new AppError('VALIDATION_FAILED', {
-        dateOfBirth: [`You must be at least ${MIN_AGE_YEARS} years old.`],
-      });
-    }
+  private readonly dummyHash = hashSecret('ladder-dummy-password');
 
-    await this.usersService.createPending(dto.email, dateOfBirth);
+  async signup(dto: SignupDto): Promise<OtpSentResponse> {
+    await this.usersService.createPending(dto.email, await hashSecret(dto.password));
     return this.issueOtp(dto.email);
+  }
+
+  async login(dto: LoginDto): Promise<SessionResponse> {
+    const user = await this.usersService.findByEmail(dto.email);
+    // Verify against a dummy hash for unknown emails so response time does not reveal which exist.
+    const isMatch = await verifySecret(user?.passwordHash ?? (await this.dummyHash), dto.password);
+    if (!user || !isMatch) throw new AppError('INVALID_CREDENTIALS');
+    if (!user.emailVerifiedAt) throw new AppError('EMAIL_NOT_VERIFIED');
+
+    return this.createSession(user.id);
   }
 
   async resendOtp(dto: ResendOtpDto): Promise<OtpSentResponse> {
     const user = await this.usersService.findByEmail(dto.email);
-    // Same response for unknown or completed accounts, so the endpoint cannot be used to probe emails.
-    if (!user || user.pinHash) return this.otpSentResponse();
+    // Same response for unknown or already verified accounts, so the endpoint cannot be used to probe emails.
+    if (!user || user.emailVerifiedAt) return this.otpSentResponse();
 
     const latest = await this.authRepository.findLatestOtp(dto.email, OtpPurpose.SIGNUP);
     if (latest && secondsSince(latest.createdAt) < OTP_RESEND_COOLDOWN_SECONDS) {
@@ -123,12 +128,6 @@ export class AuthService {
 
     await this.authRepository.createSession({ userId, tokenHash: sha256(token), expiresAt });
     return { token, expiresAt };
-  }
-
-  private isOldEnough(dateOfBirth: Date): boolean {
-    const cutoff = new Date();
-    cutoff.setUTCFullYear(cutoff.getUTCFullYear() - MIN_AGE_YEARS);
-    return dateOfBirth <= cutoff;
   }
 }
 

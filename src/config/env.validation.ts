@@ -1,5 +1,6 @@
 import { plainToInstance, Type } from 'class-transformer';
 import {
+  IsEmail,
   IsIn,
   IsInt,
   IsNotEmpty,
@@ -28,6 +29,11 @@ export class EnvironmentVariables {
   @IsNotEmpty()
   DATABASE_URL: string;
 
+  // Used by Prisma CLI for migrations; not read by the app.
+  @IsOptional()
+  @IsString()
+  DIRECT_URL?: string;
+
   @IsString()
   @IsNotEmpty()
   ENCRYPTION_KEY: string;
@@ -40,44 +46,19 @@ export class EnvironmentVariables {
   @Min(1)
   SESSION_TTL_HOURS = 24;
 
-  @IsIn(['mock'])
-  IDENTITY_PROVIDER = 'mock' as const;
+  // Both are test sources; a real vendor adapter is required in production.
+  @IsIn(['mock', 'registry'])
+  IDENTITY_PROVIDER: 'mock' | 'registry' = 'registry';
 
   @IsString()
-  S3_BUCKET: string;
+  @IsNotEmpty()
+  BREVO_API_KEY: string;
+
+  @IsEmail()
+  EMAIL_FROM: string;
 
   @IsString()
-  S3_REGION = 'us-east-1';
-
-  @IsOptional()
-  @IsString()
-  S3_ENDPOINT?: string;
-
-  @IsOptional()
-  @IsString()
-  S3_ACCESS_KEY_ID?: string;
-
-  @IsOptional()
-  @IsString()
-  S3_SECRET_ACCESS_KEY?: string;
-
-  @IsString()
-  SMTP_HOST: string;
-
-  @Type(() => Number)
-  @IsInt()
-  SMTP_PORT = 1025;
-
-  @IsOptional()
-  @IsString()
-  SMTP_USER?: string;
-
-  @IsOptional()
-  @IsString()
-  SMTP_PASSWORD?: string;
-
-  @IsString()
-  MAIL_FROM: string;
+  EMAIL_FROM_NAME = 'Ladder';
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {
@@ -98,9 +79,9 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
       'Invalid environment variables:\nENCRYPTION_KEY: must be 32 bytes, base64-encoded',
     );
   }
-  if (env.NODE_ENV === 'production' && env.IDENTITY_PROVIDER === 'mock') {
+  if (env.NODE_ENV === 'production') {
     throw new Error(
-      'Invalid environment variables:\nIDENTITY_PROVIDER: mock is not allowed in production',
+      `Invalid environment variables:\nIDENTITY_PROVIDER: ${env.IDENTITY_PROVIDER} is test-only and not allowed in production`,
     );
   }
 

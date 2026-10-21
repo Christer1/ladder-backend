@@ -23,11 +23,11 @@ export class UsersService {
     return this.usersRepository.findByEmail(email);
   }
 
-  // Creates a pending user, or updates the DOB of one that has not finished onboarding.
-  async createPending(email: string, dateOfBirth: Date): Promise<User> {
+  // Creates a pending user, or resets the password of one whose email is not verified yet.
+  async createPending(email: string, passwordHash: string): Promise<User> {
     const existing = await this.usersRepository.findByEmail(email);
-    if (existing?.pinHash) throw new AppError('EMAIL_TAKEN');
-    return this.usersRepository.upsertByEmail(email, dateOfBirth);
+    if (existing?.emailVerifiedAt) throw new AppError('EMAIL_TAKEN');
+    return this.usersRepository.upsertByEmail(email, passwordHash);
   }
 
   markEmailVerified(id: string): Promise<User> {
@@ -38,8 +38,8 @@ export class UsersService {
     return this.usersRepository.update(id, { pinHash });
   }
 
-  // Issues the Ladder ID once identity is fully verified. Idempotent.
-  async completeVerification(id: string): Promise<User> {
+  // Called after a BVN or NIN matches: stores the verified date of birth and issues the Ladder ID once.
+  async completeVerification(id: string, dateOfBirth: Date): Promise<User> {
     const user = await this.findById(id);
     if (user.ladderId) return user;
 
@@ -47,6 +47,7 @@ export class UsersService {
       try {
         return await this.usersRepository.update(id, {
           ladderId: generateLadderId(),
+          dateOfBirth,
           status: UserStatus.VERIFIED,
         });
       } catch (error) {
@@ -65,7 +66,7 @@ export class UsersService {
     return {
       id: user.id,
       email: user.email,
-      dateOfBirth: user.dateOfBirth.toISOString().slice(0, 10),
+      dateOfBirth: user.dateOfBirth?.toISOString().slice(0, 10) ?? null,
       ladderId: user.ladderId,
       status: user.status,
       verifications: user.verifications.map((v) => ({

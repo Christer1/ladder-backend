@@ -21,11 +21,11 @@ export class UsersRepository {
     return this.prisma.user.findUnique({ where: { id }, include: withVerifications });
   }
 
-  upsertByEmail(email: string, dateOfBirth: Date): Promise<User> {
+  upsertByEmail(email: string, passwordHash: string): Promise<User> {
     return this.prisma.user.upsert({
       where: { email },
-      create: { email, dateOfBirth },
-      update: { dateOfBirth },
+      create: { email, passwordHash },
+      update: { passwordHash },
     });
   }
 
