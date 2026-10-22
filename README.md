@@ -72,8 +72,18 @@ npm run dev              # http://localhost:4000/api/v1
 | `EMAIL_FROM` | Sender address for the OTP emails. It must be a sender verified in your Brevo account |
 | `WEB_ORIGIN` | URL of `ladder-web`, for CORS and cookies (default `http://localhost:3000`) |
 | `IDENTITY_PROVIDER` | Where BVNs and NINs are checked: `registry` (the seeded test table) or `mock` |
+| `GROQ_API_KEY` | Writes the help chat replies. Without it, customers get a fixed English explanation |
+| `FIREBASE_SERVICE_ACCOUNT` | Firebase service account JSON, base64-encoded, for the web help chat (see below). Without it, `/assistance/help-chat` answers `503 HELP_CHAT_UNAVAILABLE` |
 
 The rest of `.env.example` has working defaults.
+
+### Web help chat (Firebase)
+
+When a customer taps **Get help** on `ladder-assistance`, a chat widget opens. Its messages are stored in Firestore (`helpChats/{chatId}/messages`) and the AI answers every customer message. To set up a Firebase project:
+
+1. Create a Firestore database (production mode) and click **Get started** under Authentication. No sign-in provider is needed.
+2. Generate a service account key (Project settings → Service accounts), then put `base64 -i <key>.json | tr -d '\n'` in `FIREBASE_SERVICE_ACCOUNT`. Delete the JSON file afterwards and never commit it.
+3. Publish [`firestore.rules`](firestore.rules): paste it into Firestore → Rules, or run `firebase deploy --only firestore:rules`. Browsers can then read only their own chat, and only the backend writes.
 
 ## Test data (BVN / NIN)
 

@@ -15,6 +15,10 @@ export const HELP_REFERENCE_TTL_HOURS = 24;
 export const HELP_CHAT_TTL_DAYS = 7;
 export const HELP_TRANSCRIPT_MESSAGES = 12;
 
+// Web help chat (Firestore). A chat for a reference can be reopened for HELP_CHAT_TTL_DAYS.
+export const WEB_CHAT_COLLECTION = 'helpChats';
+export const WEB_CHAT_MESSAGE_MAX_LENGTH = 1000;
+
 // Government ID and liveness uploads. Files are checked, then discarded: no document storage or
 // provider check exists yet (AIUsage.md §5).
 export const UPLOAD_MAX_BYTES = 5 * 1024 * 1024;

@@ -135,6 +135,15 @@ Rules: password ≥ 8 chars with a letter and a number. Login needs a verified e
 
 Rules: a wrong number, an unknown number, an invalid record and a wrong date of birth all answer `INFORMATION_MISMATCH`, so the screen can't be used to find out which numbers exist. Unknown and unverified Ladder IDs share `LADDER_ID_NOT_FOUND`. A Ladder ID qualifies when its user is `VERIFIED` with a verified BVN (else NIN); details come from that record via `IdentityProvider.getPerson(providerRef)`, with the user's account email. Identify is limited to 10/min. The session stores only the token hash and the provider ref, never identity numbers. Handing confirmed details to the partner is not built yet.
 
+**Help chat.** A failed identify returns `details: { helpReference, whatsappUrl }` with its error. The customer gets help from the AI (Groq, `modules/support/help-chat.agent.ts`) either on WhatsApp (Infobip webhook) or in the web widget, which is stored in Firestore. Both channels use the same agent: its replies are checked by `validate-reply.ts`, and it falls back to a fixed reply when the AI is unavailable. The first message the customer gets on either channel is a fixed question asking which language they want; the AI then answers in that language.
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| POST | `/assistance/help-chat` | `{ reference? }` (`LDR-XXXXXX`; leave it out for the "couldn't load your details" screen) | `{ chatId, firebaseToken }`. The first call writes the preset customer message and Ladder's language question; later calls reopen the same chat (chat id = the reference). `404 HELP_REFERENCE_NOT_FOUND`, `410 HELP_REFERENCE_EXPIRED`, `503 HELP_CHAT_UNAVAILABLE`. 10/min |
+| POST | `/assistance/help-chat/:chatId/messages` | `{ text }` (1–1000 chars) + `Authorization: Bearer <Firebase ID token>` | `202`. Long numbers are masked, then the reply is written to Firestore in the background (`aiTyping` is true meanwhile). `401 HELP_CHAT_SESSION_INVALID`. 20/min |
+
+The browser signs in with `firebaseToken` (uid `help_<chatId>`) and reads `helpChats/{chatId}` live; `firestore.rules` lets it read only that chat and never write.
+
 BVN/NIN errors (`422`): `BVN_NOT_FOUND`, `BVN_INVALID`, `BVN_DOB_MISMATCH` (and the `NIN_` equivalents). Brevo failure: `502 EMAIL_SEND_FAILED`.
 
 ## 6. Model rules

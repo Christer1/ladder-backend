@@ -25,6 +25,17 @@ const ID_FACTS: Record<IdType, { name: string; retrieve: string; correctAt: stri
 
 const RETRY = 'Then go back to the account opening screen and try again.';
 
+// The web chat opened from the "couldn't load your details" screen: the check passed, so there is
+// no failed ID to explain.
+export const DETAILS_UNAVAILABLE_GUIDANCE: IssueGuidance = {
+  whatWentWrong:
+    'The customer’s check passed, but Ladder could not load their details on the next screen. This is usually a temporary problem on Ladder’s side, not a problem with their BVN, NIN or Ladder ID.',
+  howToFix: [
+    'Tap "Try again" on the screen.',
+    'If it still fails, wait a few minutes, then start again from the account opening screen.',
+  ],
+};
+
 export function issueGuidance(
   reason: AssistanceIssueReason,
   failedType: IdType | null,

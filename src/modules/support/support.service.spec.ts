@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { AssistanceIssue, Prisma, WhatsAppMessage } from '@prisma/client';
 import { AppError } from '../../common/errors/app-error';
 import { GroqService, LlmUnavailableError } from '../../integrations/llm/groq.service';
+import { HelpChatAgent } from './help-chat.agent';
 import { WhatsAppProvider } from '../../integrations/whatsapp/whatsapp.provider';
 import { SupportRepository } from './support.repository';
 import { SupportService } from './support.service';
@@ -68,7 +69,7 @@ describe('SupportService', () => {
       sendText: jest.fn().mockResolvedValue({ providerMessageId: 'ib-out-1', status: 'SENT' }),
     };
     const config = { get: (key: string) => CONFIG[key] } as unknown as ConfigService;
-    service = new SupportService(repo, config as never, groq, whatsApp);
+    service = new SupportService(repo, config as never, new HelpChatAgent(groq), whatsApp);
   });
 
   describe('openIssue', () => {
