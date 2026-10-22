@@ -137,6 +137,36 @@ export class EnvironmentVariables {
 
   @IsString()
   GROQ_MODEL = 'openai/gpt-oss-120b';
+
+  // Web help chat on Firestore: the Firebase Admin service account JSON, base64-encoded.
+  // Unset = the web chat endpoints answer HELP_CHAT_UNAVAILABLE.
+  @IsOptional()
+  @IsString()
+  FIREBASE_SERVICE_ACCOUNT?: string;
+}
+
+// The decoded service account, or null when FIREBASE_SERVICE_ACCOUNT is not a valid one.
+export function parseServiceAccount(
+  encoded: string,
+): { projectId: string; clientEmail: string; privateKey: string } | null {
+  try {
+    const json = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8')) as Record<
+      string,
+      unknown
+    >;
+    const { type, project_id, client_email, private_key } = json;
+    if (
+      type !== 'service_account' ||
+      typeof project_id !== 'string' ||
+      typeof client_email !== 'string' ||
+      typeof private_key !== 'string'
+    ) {
+      return null;
+    }
+    return { projectId: project_id, clientEmail: client_email, privateKey: private_key };
+  } catch {
+    return null;
+  }
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {
@@ -164,6 +194,11 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
     if (missing.length > 0) {
       throw new Error(`Invalid environment variables:\n${missing.join('\n')}`);
     }
+  }
+  if (env.FIREBASE_SERVICE_ACCOUNT && !parseServiceAccount(env.FIREBASE_SERVICE_ACCOUNT)) {
+    throw new Error(
+      'Invalid environment variables:\nFIREBASE_SERVICE_ACCOUNT: must be a Firebase service account JSON, base64-encoded',
+    );
   }
   if (env.NODE_ENV === 'production') {
     throw new Error(

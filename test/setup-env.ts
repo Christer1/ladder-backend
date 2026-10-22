@@ -11,3 +11,5 @@ process.env.BREVO_API_KEY = 'test-key-not-used';
 process.env.WHATSAPP_PROVIDER = 'console';
 process.env.INFOBIP_WEBHOOK_TOKEN = 'test-webhook-token';
 process.env.GROQ_API_KEY = '';
+// Web help chat: Firestore is replaced in the tests that use it; never the real project.
+process.env.FIREBASE_SERVICE_ACCOUNT = '';

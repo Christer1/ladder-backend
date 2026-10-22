@@ -1,0 +1,23 @@
+rules_version = '2';
+
+// Web help chat (src/modules/support/web-chat.store.ts). Only the backend writes, with the Admin
+// SDK, which bypasses these rules. A customer's browser signs in with the custom token from
+// POST /assistance/help-chat (uid "help_<chatId>") and may only read that one chat.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /helpChats/{chatId} {
+      allow read: if request.auth != null && request.auth.uid == 'help_' + chatId;
+      allow write: if false;
+
+      match /messages/{messageId} {
+        allow read: if request.auth != null && request.auth.uid == 'help_' + chatId;
+        allow write: if false;
+      }
+    }
+
+    // Everything else is closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -117,6 +117,24 @@ export const ERROR_CODES = {
     status: HttpStatus.BAD_GATEWAY,
     message: 'We could not send the WhatsApp message.',
   },
+
+  // Web help chat (Firestore).
+  HELP_REFERENCE_NOT_FOUND: {
+    status: HttpStatus.NOT_FOUND,
+    message: 'We couldn’t find this help request. Please try again on the account opening screen.',
+  },
+  HELP_REFERENCE_EXPIRED: {
+    status: HttpStatus.GONE,
+    message: 'This help request has expired. Please try again on the account opening screen.',
+  },
+  HELP_CHAT_SESSION_INVALID: {
+    status: HttpStatus.UNAUTHORIZED,
+    message: 'This chat has ended. Tap Get help to open it again.',
+  },
+  HELP_CHAT_UNAVAILABLE: {
+    status: HttpStatus.SERVICE_UNAVAILABLE,
+    message: 'Chat is not available right now. Please try again later.',
+  },
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_CODES;

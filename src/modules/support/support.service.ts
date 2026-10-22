@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   AssistanceIssue,
@@ -18,18 +18,13 @@ import {
   HELP_TRANSCRIPT_MESSAGES,
 } from '../../config/app.config';
 import { EnvironmentVariables } from '../../config/env.validation';
-import { ChatMessage, GroqService, LlmUnavailableError } from '../../integrations/llm/groq.service';
 import { InfobipInbound, InfobipReport } from '../../integrations/whatsapp/infobip.mapping';
 import { WHATSAPP_PROVIDER, WhatsAppProvider } from '../../integrations/whatsapp/whatsapp.provider';
-import { issueGuidance, IssueGuidance } from './help-chat.knowledge';
-import {
-  buildHelpChatInput,
-  HELP_CHAT_SYSTEM_PROMPT,
-  helpChatOpener,
-  toTranscript,
-} from './help-chat.prompts';
+import { HelpChatAgent } from './help-chat.agent';
+import { issueContext, partnerName } from './help-chat.context';
+import { helpChatOpener, toTranscript } from './help-chat.prompts';
 import { SupportRepository } from './support.repository';
-import { maskLongNumbers, replyProblems } from './validate-reply';
+import { maskLongNumbers } from './validate-reply';
 
 type IdType = typeof VerificationType.BVN | typeof VerificationType.NIN;
 
@@ -58,21 +53,9 @@ interface ResolvedIssue {
   referenceProblem?: ReferenceProblem;
 }
 
-interface AiReply {
-  reply: string;
-  preferredLanguage: string | null;
-}
-
 const REFERENCE_PATTERN = /\bLDR-([2-9A-HJKMNP-Z]{6})\b/i;
 const REFERENCE_MAX_TRIES = 5;
 const DAY_MS = 86_400_000;
-
-const METHOD_LABELS: Record<AssistanceMethod, string> = {
-  BVN: 'BVN',
-  NIN: 'NIN',
-  BVN_AND_NIN: 'BVN and NIN',
-  LADDER_ID: 'Ladder ID',
-};
 
 const REFERENCE_PROBLEMS: Record<ReferenceProblem, string> = {
   not_found: 'No issue has this reference. It may have been mistyped.',
@@ -97,12 +80,10 @@ const isUniqueViolation = (error: unknown): boolean =>
 // link; the customer's message arrives through the Infobip webhook and the AI explains the issue.
 @Injectable()
 export class SupportService {
-  private readonly logger = new Logger(SupportService.name);
-
   constructor(
     private readonly supportRepository: SupportRepository,
     private readonly config: ConfigService<EnvironmentVariables, true>,
-    private readonly groq: GroqService,
+    private readonly agent: HelpChatAgent,
     @Inject(WHATSAPP_PROVIDER) private readonly whatsApp: WhatsAppProvider,
   ) {}
 
@@ -210,61 +191,20 @@ export class SupportService {
     transcript: ReturnType<typeof toTranscript>,
     text: string,
   ): Promise<string> {
-    const guidance = issue && issueGuidance(issue.reason, issue.failedType as IdType | null);
-    const fallback =
-      issue && guidance ? fixedIssueReply(issue, guidance) : fixedNoIssueReply(referenceProblem);
-    if (!this.groq.isConfigured) return fallback;
-
-    const issueData =
-      issue && guidance
-        ? {
-            reference: issue.reference,
-            partner: partnerName(issue.partnerId),
-            checked_with: METHOD_LABELS[issue.method],
-            failed_id: issue.failedType ?? 'Ladder ID',
-            value_entered_ends_with: issue.maskedValue.slice(-4),
-            logged_on: issue.createdAt.toISOString().slice(0, 10),
-            preferred_language: issue.preferredLanguage,
-            what_went_wrong: guidance.whatWentWrong,
-            how_to_fix: guidance.howToFix,
-          }
-        : referenceProblem
-          ? { reference_problem: REFERENCE_PROBLEMS[referenceProblem] }
-          : null;
-
-    const messages: ChatMessage[] = [
-      { role: 'system', content: HELP_CHAT_SYSTEM_PROMPT },
-      { role: 'user', content: buildHelpChatInput(issueData, transcript, text) },
-    ];
-    try {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const raw = await this.groq.complete(messages, { json: true });
-        const answer = parseAiReply(raw);
-        const problems = answer ? replyProblems(answer.reply) : ['not_the_requested_json'];
-        if (answer && problems.length === 0) {
-          if (
-            issue &&
-            answer.preferredLanguage &&
-            answer.preferredLanguage !== issue.preferredLanguage
-          ) {
-            await this.supportRepository.setPreferredLanguage(issue.id, answer.preferredLanguage);
-          }
-          return answer.reply;
-        }
-
-        this.logger.warn(`AI reply rejected: ${problems.join(', ')}`);
-        messages.push(
-          { role: 'assistant', content: raw },
-          {
-            role: 'user',
-            content: `That reply broke these rules: ${problems.join(', ')}. Rewrite it following every rule.`,
-          },
-        );
-      }
-    } catch (error) {
-      if (!(error instanceof LlmUnavailableError)) throw error;
+    const context = issue && issueContext(issue, issue.preferredLanguage);
+    const { reply, preferredLanguage } = await this.agent.reply({
+      channel: 'whatsapp',
+      data:
+        context?.data ??
+        (referenceProblem ? { reference_problem: REFERENCE_PROBLEMS[referenceProblem] } : null),
+      transcript,
+      text,
+      fallback: context?.fallback ?? fixedNoIssueReply(referenceProblem),
+    });
+    if (issue && preferredLanguage && preferredLanguage !== issue.preferredLanguage) {
+      await this.supportRepository.setPreferredLanguage(issue.id, preferredLanguage);
     }
-    return fallback;
+    return reply;
   }
 
   private async send(phone: string, body: string, issueId: string | null): Promise<void> {
@@ -292,37 +232,7 @@ export class SupportService {
   }
 }
 
-// { "preferred_language": string | null, "reply": string }, or null if the AI sent anything else.
-function parseAiReply(raw: string): AiReply | null {
-  try {
-    const data = JSON.parse(raw) as { preferred_language?: unknown; reply?: unknown };
-    if (typeof data.reply !== 'string') return null;
-    const language =
-      typeof data.preferred_language === 'string'
-        ? data.preferred_language.trim().slice(0, 40)
-        : '';
-    // WhatsApp bolds with single asterisks; models often write markdown's double ones.
-    const reply = data.reply.trim().replace(/\*\*(.+?)\*\*/g, '*$1*');
-    return { reply, preferredLanguage: language || null };
-  } catch {
-    return null;
-  }
-}
-
-const partnerName = (partnerId: string): string =>
-  partnerId.charAt(0).toUpperCase() + partnerId.slice(1);
-
-// Sent when the AI is not configured, unavailable, or keeps breaking the rules.
-function fixedIssueReply(issue: AssistanceIssue, guidance: IssueGuidance): string {
-  const steps = guidance.howToFix.map((step, i) => `${i + 1}. ${step}`).join('\n');
-  return [
-    `Hi, this is Ladder. We found your request (ref ${issue.reference}).`,
-    `*What went wrong:* ${guidance.whatWentWrong}`,
-    `*How to fix it:*\n${steps}`,
-    'Please never send your BVN, NIN, PIN or OTP in this chat.',
-  ].join('\n\n');
-}
-
+// Sent when the AI can't answer and the message names no usable issue.
 function fixedNoIssueReply(referenceProblem: ReferenceProblem | undefined): string {
   const problem = referenceProblem ? `${REFERENCE_PROBLEMS[referenceProblem]} ` : '';
   return `Hi, this is Ladder. ${problem}Please send the reference shown on the account opening screen (it looks like LDR-XXXXXX) so we can see what went wrong. If you don't have one, try the account opening screen again and tap "Chat with us on WhatsApp".`;
