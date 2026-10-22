@@ -22,12 +22,7 @@ export class MockIdentityProvider implements IdentityProvider {
       firstName: 'Ada',
       lastName: 'Okafor',
       dateOfBirth: '1990-05-17',
-      gender: 'Female',
       phoneNumber: '08012345678',
-      email: 'ada.okafor@example.com',
-      stateOfOrigin: 'Anambra',
-      stateOfResidence: 'Lagos',
-      town: 'Ikeja',
       residentialAddress: '12 Allen Avenue, Ikeja',
     };
   }

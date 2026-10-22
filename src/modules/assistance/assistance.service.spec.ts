@@ -12,12 +12,7 @@ const person = (overrides: Partial<IdentityPerson> = {}): IdentityPerson => ({
   firstName: 'Ada',
   lastName: 'Okafor',
   dateOfBirth: DOB,
-  gender: 'Female',
   phoneNumber: '08012345678',
-  email: 'ada@example.com',
-  stateOfOrigin: 'Anambra',
-  stateOfResidence: 'Lagos',
-  town: 'Ikeja',
   residentialAddress: '12 Allen Avenue, Ikeja',
   ...overrides,
 });
@@ -198,16 +193,16 @@ describe('AssistanceService', () => {
       expect(provider.getPerson).not.toHaveBeenCalled();
     });
 
-    it('returns the details on file after liveness', async () => {
+    it('returns the details on file, with placeholders for the rest, after liveness', async () => {
       await expect(service.getDetails(session())).resolves.toEqual({
         fullName: 'Ada Okafor',
         dateOfBirth: DOB,
-        gender: 'Female',
+        gender: 'Male',
         phoneNumber: '08012345678',
-        email: 'ada@example.com',
-        stateOfOrigin: 'Anambra',
-        stateOfResidence: 'Lagos',
-        town: 'Ikeja',
+        email: 'customer@example.com',
+        stateOfOrigin: 'Oyo',
+        stateOfResidence: 'Oyo',
+        town: 'Ibadan',
         residentialAddress: '12 Allen Avenue, Ikeja',
       });
     });

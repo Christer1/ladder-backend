@@ -25,12 +25,7 @@ export class RegistryIdentityProvider implements IdentityProvider {
       firstName: record.firstName,
       lastName: record.lastName,
       dateOfBirth: record.dateOfBirth.toISOString().slice(0, 10),
-      gender: record.gender,
       phoneNumber: record.phoneNumber,
-      email: record.email,
-      stateOfOrigin: record.stateOfOrigin,
-      stateOfResidence: record.stateOfResidence,
-      town: record.town,
       residentialAddress: record.residentialAddress,
     };
   }

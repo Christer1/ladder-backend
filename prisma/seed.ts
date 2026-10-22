@@ -54,28 +54,16 @@ const LAST_NAMES = [
   'Yusuf',
 ];
 
-// Index-aligned with FIRST_NAMES.
-const FEMALE_FIRST_NAMES = new Set([
-  'Adaeze',
-  'Ngozi',
-  'Funmilayo',
-  'Aisha',
-  'Zainab',
-  'Yetunde',
-  'Chiamaka',
-  'Halima',
-  'Bukola',
-  'Amina',
-]);
-const STATES = [
-  { state: 'Lagos', towns: ['Ikeja', 'Lekki', 'Yaba', 'Surulere'] },
-  { state: 'Oyo', towns: ['Ibadan', 'Ogbomosho', 'Oyo'] },
-  { state: 'FCT', towns: ['Garki', 'Wuse', 'Gwarinpa'] },
-  { state: 'Rivers', towns: ['Port Harcourt', 'Bonny'] },
-  { state: 'Kano', towns: ['Kano', 'Wudil'] },
-  { state: 'Enugu', towns: ['Enugu', 'Nsukka'] },
-  { state: 'Anambra', towns: ['Awka', 'Onitsha', 'Nnewi'] },
-  { state: 'Kaduna', towns: ['Kaduna', 'Zaria'] },
+const TOWNS = [
+  'Ikeja',
+  'Lekki',
+  'Yaba',
+  'Ibadan',
+  'Garki',
+  'Wuse',
+  'Port Harcourt',
+  'Enugu',
+  'Awka',
 ];
 const STREETS = [
   'Allen Avenue',
@@ -100,30 +88,16 @@ function createRandom(seed: number): () => number {
   };
 }
 
-type Person = {
-  dateOfBirth: Date;
-  firstName: string;
-  lastName: string;
-};
-
-// Contact and address details for the ladder-assistance "Your details" screen. Uses its own random
-// stream so adding it did not change the numbers, names or dates of birth seeded before.
-function buildProfile(person: Person, random: () => number) {
+// Phone and address for the ladder-assistance "Your details" screen. Uses its own random stream so
+// adding it did not change the numbers, names or dates of birth seeded before.
+function buildProfile(random: () => number) {
   const int = (min: number, max: number) => min + Math.floor(random() * (max - min + 1));
   const pick = <T>(items: readonly T[]): T => items[int(0, items.length - 1)];
-  const residence = pick(STATES);
-  const town = pick(residence.towns);
   const digits = (length: number) => Array.from({ length }, () => int(0, 9)).join('');
 
   return {
-    gender: FEMALE_FIRST_NAMES.has(person.firstName) ? 'Female' : 'Male',
     phoneNumber: pick(PHONE_PREFIXES) + digits(7),
-    // example.com never delivers mail.
-    email: `${person.firstName}.${person.lastName}${int(1, 99)}@example.com`.toLowerCase(),
-    stateOfOrigin: pick(STATES).state,
-    stateOfResidence: residence.state,
-    town,
-    residentialAddress: `${int(1, 120)}, ${pick(STREETS)}, ${town}`,
+    residentialAddress: `${int(1, 120)}, ${pick(STREETS)}, ${pick(TOWNS)}`,
   };
 }
 
@@ -148,7 +122,7 @@ function buildRecords(type: VerificationType, seed: number) {
       number: prefix + digits,
       ...person,
       isValid: i < VALID_PER_TYPE,
-      ...buildProfile(person, profileRandom),
+      ...buildProfile(profileRandom),
     };
   });
 }
@@ -165,7 +139,7 @@ function buildLinkedRecords(seed: number) {
       firstName: FIRST_NAMES[int(0, FIRST_NAMES.length - 1)],
       lastName: LAST_NAMES[int(0, LAST_NAMES.length - 1)],
     };
-    const shared = { ...person, isValid: true, ...buildProfile(person, random) };
+    const shared = { ...person, isValid: true, ...buildProfile(random) };
     return [
       { type: VerificationType.BVN, number: '229' + digits(8), ...shared },
       { type: VerificationType.NIN, number: '79' + digits(9), ...shared },
@@ -209,7 +183,8 @@ async function main(): Promise<void> {
     linked
       .filter((r) => r.type === VerificationType.BVN)
       .map((bvn) => {
-        const nin = linked.find((r) => r.type === VerificationType.NIN && r.email === bvn.email);
+        // buildLinkedRecords puts each person's NIN right after their BVN.
+        const nin = linked[linked.indexOf(bvn) + 1];
         return {
           bvn: bvn.number,
           nin: nin?.number,

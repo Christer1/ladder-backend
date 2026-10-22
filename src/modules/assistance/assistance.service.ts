@@ -36,6 +36,16 @@ const METHOD_NAMES: Record<AssistanceMethod, AssistanceMethodName> = {
   LADDER_ID: 'ladder-id',
 };
 
+// PLACEHOLDER: shown to everyone until we decide where these come from. Not stored with BVN/NIN
+// records, which hold only what verification needs.
+const PLACEHOLDER_PROFILE = {
+  gender: 'Male',
+  email: 'customer@example.com',
+  stateOfOrigin: 'Oyo',
+  stateOfResidence: 'Oyo',
+  town: 'Ibadan',
+} as const;
+
 // Ladder ID lookups read the person behind the user's verified BVN, else NIN.
 const LADDER_ID_SOURCES: readonly VerificationType[] = [VerificationType.BVN, VerificationType.NIN];
 
@@ -144,18 +154,15 @@ export class AssistanceService {
 
   async getDetails(session: AssistanceSession): Promise<AssistanceDetailsResponse> {
     const person = await this.getVerifiedPerson(session);
-    // A Ladder user's own account email wins over the one on their BVN/NIN record.
+    // A Ladder user's own account email replaces the placeholder.
     const user = session.userId ? await this.usersService.findById(session.userId) : null;
 
     return {
+      ...PLACEHOLDER_PROFILE,
       fullName: `${person.firstName} ${person.lastName}`,
       dateOfBirth: person.dateOfBirth,
-      gender: person.gender,
       phoneNumber: person.phoneNumber,
-      email: user?.email ?? person.email,
-      stateOfOrigin: person.stateOfOrigin,
-      stateOfResidence: person.stateOfResidence,
-      town: person.town,
+      email: user?.email ?? PLACEHOLDER_PROFILE.email,
       residentialAddress: person.residentialAddress,
     };
   }
