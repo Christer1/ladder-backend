@@ -22,7 +22,12 @@ import { ChatMessage, GroqService, LlmUnavailableError } from '../../integration
 import { InfobipInbound, InfobipReport } from '../../integrations/whatsapp/infobip.mapping';
 import { WHATSAPP_PROVIDER, WhatsAppProvider } from '../../integrations/whatsapp/whatsapp.provider';
 import { issueGuidance, IssueGuidance } from './help-chat.knowledge';
-import { buildHelpChatInput, HELP_CHAT_SYSTEM_PROMPT, toTranscript } from './help-chat.prompts';
+import {
+  buildHelpChatInput,
+  HELP_CHAT_SYSTEM_PROMPT,
+  helpChatOpener,
+  toTranscript,
+} from './help-chat.prompts';
 import { SupportRepository } from './support.repository';
 import { maskLongNumbers, replyProblems } from './validate-reply';
 
@@ -45,6 +50,18 @@ export interface AssistanceHelp {
 }
 
 type ReferenceProblem = 'not_found' | 'expired' | 'used_by_another_phone';
+
+interface ResolvedIssue {
+  issue: AssistanceIssue | null;
+  // True when this message claimed the issue: Ladder answers with its opening message.
+  claimed?: boolean;
+  referenceProblem?: ReferenceProblem;
+}
+
+interface AiReply {
+  reply: string;
+  preferredLanguage: string | null;
+}
 
 const REFERENCE_PATTERN = /\bLDR-([2-9A-HJKMNP-Z]{6})\b/i;
 const REFERENCE_MAX_TRIES = 5;
@@ -111,7 +128,8 @@ export class SupportService {
     throw new AppError('INTERNAL_ERROR');
   }
 
-  // One customer message from the webhook: store it, find the issue it is about, reply.
+  // One customer message from the webhook: store it, find the issue it is about, reply. The message
+  // that claims an issue gets Ladder's opening message (which language?); the AI answers the rest.
   async handleInbound(inbound: InfobipInbound): Promise<void> {
     const text = maskLongNumbers(inbound.text);
     let messageId: string;
@@ -129,10 +147,14 @@ export class SupportService {
       throw error;
     }
 
-    const { issue, referenceProblem } = await this.resolveIssue(inbound.fromPhone, text);
+    const { issue, claimed, referenceProblem } = await this.resolveIssue(inbound.fromPhone, text);
     if (issue) {
       await this.supportRepository.updateMessage(messageId, { issueId: issue.id });
       await this.supportRepository.touchIssue(issue.id);
+    }
+    if (issue && claimed) {
+      await this.send(inbound.fromPhone, helpChatOpener(partnerName(issue.partnerId)), issue.id);
+      return;
     }
 
     const history = await this.supportRepository.recentMessages(
@@ -160,10 +182,7 @@ export class SupportService {
   }
 
   // A reference in the message claims or reopens that issue; otherwise the phone's latest one.
-  private async resolveIssue(
-    phone: string,
-    text: string,
-  ): Promise<{ issue: AssistanceIssue | null; referenceProblem?: ReferenceProblem }> {
+  private async resolveIssue(phone: string, text: string): Promise<ResolvedIssue> {
     const match = REFERENCE_PATTERN.exec(text);
     if (!match) {
       const since = new Date(Date.now() - HELP_CHAT_TTL_DAYS * DAY_MS);
@@ -176,7 +195,7 @@ export class SupportService {
     if (!issue) return { issue: null, referenceProblem: 'not_found' };
     if (issue.contactPhone === phone) return { issue };
     if (!issue.contactPhone && (await this.supportRepository.claimIssue(issue.id, phone))) {
-      return { issue: { ...issue, contactPhone: phone } };
+      return { issue: { ...issue, contactPhone: phone }, claimed: true };
     }
     return {
       issue: null,
@@ -205,6 +224,7 @@ export class SupportService {
             failed_id: issue.failedType ?? 'Ladder ID',
             value_entered_ends_with: issue.maskedValue.slice(-4),
             logged_on: issue.createdAt.toISOString().slice(0, 10),
+            preferred_language: issue.preferredLanguage,
             what_went_wrong: guidance.whatWentWrong,
             how_to_fix: guidance.howToFix,
           }
@@ -218,13 +238,23 @@ export class SupportService {
     ];
     try {
       for (let attempt = 0; attempt < 2; attempt++) {
-        const reply = await this.groq.complete(messages);
-        const problems = replyProblems(reply);
-        if (problems.length === 0) return reply.trim();
+        const raw = await this.groq.complete(messages, { json: true });
+        const answer = parseAiReply(raw);
+        const problems = answer ? replyProblems(answer.reply) : ['not_the_requested_json'];
+        if (answer && problems.length === 0) {
+          if (
+            issue &&
+            answer.preferredLanguage &&
+            answer.preferredLanguage !== issue.preferredLanguage
+          ) {
+            await this.supportRepository.setPreferredLanguage(issue.id, answer.preferredLanguage);
+          }
+          return answer.reply;
+        }
 
         this.logger.warn(`AI reply rejected: ${problems.join(', ')}`);
         messages.push(
-          { role: 'assistant', content: reply },
+          { role: 'assistant', content: raw },
           {
             role: 'user',
             content: `That reply broke these rules: ${problems.join(', ')}. Rewrite it following every rule.`,
@@ -259,6 +289,23 @@ export class SupportService {
         error.code,
       );
     }
+  }
+}
+
+// { "preferred_language": string | null, "reply": string }, or null if the AI sent anything else.
+function parseAiReply(raw: string): AiReply | null {
+  try {
+    const data = JSON.parse(raw) as { preferred_language?: unknown; reply?: unknown };
+    if (typeof data.reply !== 'string') return null;
+    const language =
+      typeof data.preferred_language === 'string'
+        ? data.preferred_language.trim().slice(0, 40)
+        : '';
+    // WhatsApp bolds with single asterisks; models often write markdown's double ones.
+    const reply = data.reply.trim().replace(/\*\*(.+?)\*\*/g, '*$1*');
+    return { reply, preferredLanguage: language || null };
+  } catch {
+    return null;
   }
 }
 

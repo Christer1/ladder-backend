@@ -25,7 +25,8 @@ export class GroqService {
     return Boolean(this.config.get('GROQ_API_KEY', { infer: true }));
   }
 
-  async complete(messages: ChatMessage[]): Promise<string> {
+  // json: Groq's JSON mode; the prompt must ask for a JSON object.
+  async complete(messages: ChatMessage[], options: { json?: boolean } = {}): Promise<string> {
     if (!this.isConfigured) throw new LlmUnavailableError('GROQ_API_KEY is not set');
 
     let response: Response;
@@ -40,6 +41,7 @@ export class GroqService {
           model: this.config.get('GROQ_MODEL', { infer: true }),
           temperature: 0.3,
           messages,
+          ...(options.json && { response_format: { type: 'json_object' } }),
         }),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });

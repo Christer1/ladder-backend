@@ -11,7 +11,7 @@ const PHONE = '+2348000000099';
 const DOB = '1992-07-14';
 const BVN = '22800000099'; // a registry record created for this test only
 
-// Failed identify → help reference → customer writes on WhatsApp → Ladder replies.
+// Failed identify → help reference → customer writes on WhatsApp → opener → explanation.
 // WHATSAPP_PROVIDER is console and Groq is off, so the fixed explanation is "sent".
 describe('WhatsApp help chat (e2e)', () => {
   let app: INestApplication;
@@ -103,10 +103,13 @@ describe('WhatsApp help chat (e2e)', () => {
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual({ received: 1 });
 
-    const reply = await replyTo(1);
-    expect(reply.issueId).toBe(issue.id);
-    expect(reply.body).toContain('date of birth entered does not match');
-    expect(reply.status).toBe('SENT');
+    // Ladder's opening message asks for a language, as in the Zenith flow.
+    const opener = await replyTo(1);
+    expect(opener.issueId).toBe(issue.id);
+    expect(opener.body).toBe(
+      'Hello! I’m Ladder, here to help you with your recent Zenith Bank account application. Which language would you like us to use? English, Nigerian Pidgin, Yoruba, Hausa, Igbo, or another?',
+    );
+    expect(opener.status).toBe('SENT');
     await expect(
       prisma.assistanceIssue.findUniqueOrThrow({ where: { id: issue.id } }),
     ).resolves.toMatchObject({ contactPhone: PHONE });
@@ -118,8 +121,11 @@ describe('WhatsApp help chat (e2e)', () => {
       await prisma.whatsAppMessage.count({ where: { phone: PHONE, direction: 'OUTBOUND' } }),
     ).toBe(1);
 
-    // A follow-up without the reference stays on the same issue.
-    await inbound(`e2e-followup-${helpReference}`, 'What should I do?');
-    expect((await replyTo(2)).issueId).toBe(issue.id);
+    // The answer (no reference needed) stays on the same issue and explains it. Groq is off in
+    // tests, so this is the fixed explanation.
+    await inbound(`e2e-followup-${helpReference}`, 'English');
+    const explanation = await replyTo(2);
+    expect(explanation.issueId).toBe(issue.id);
+    expect(explanation.body).toContain('date of birth entered does not match');
   });
 });

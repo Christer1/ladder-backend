@@ -8,6 +8,8 @@ import { SupportService } from './support.service';
 
 const PHONE = '+2348150990267';
 const CONFIG: Record<string, string> = { INFOBIP_WHATSAPP_SENDER: '447860088970' };
+const OPENER =
+  'Hello! I’m Ladder, here to help you with your recent Zenith Bank account application. Which language would you like us to use? English, Nigerian Pidgin, Yoruba, Hausa, Igbo, or another?';
 
 const issue = (overrides: Partial<AssistanceIssue> = {}): AssistanceIssue => ({
   id: 'issue-1',
@@ -18,11 +20,16 @@ const issue = (overrides: Partial<AssistanceIssue> = {}): AssistanceIssue => ({
   reason: 'DOB_MISMATCH',
   maskedValue: '*******8901',
   contactPhone: null,
+  preferredLanguage: null,
   expiresAt: new Date(Date.now() + 60_000),
   createdAt: new Date('2026-10-22T10:00:00Z'),
   updatedAt: new Date('2026-10-22T10:00:00Z'),
   ...overrides,
 });
+
+// What the AI returns in JSON mode.
+const ai = (reply: string, preferredLanguage: string | null = null) =>
+  JSON.stringify({ preferred_language: preferredLanguage, reply });
 
 const inbound = (text: string, messageId = 'ib-in-1') => ({ messageId, fromPhone: PHONE, text });
 
@@ -44,6 +51,7 @@ describe('SupportService', () => {
       findIssueByReference: jest.fn().mockResolvedValue(null),
       claimIssue: jest.fn().mockResolvedValue(true),
       findLatestIssueForPhone: jest.fn().mockResolvedValue(null),
+      setPreferredLanguage: jest.fn(),
       touchIssue: jest.fn(),
       createMessage: jest.fn(async (data) => ({ id: `msg-${data.direction}` }) as WhatsAppMessage),
       updateMessage: jest.fn(),
@@ -53,7 +61,7 @@ describe('SupportService', () => {
     } as unknown as jest.Mocked<SupportRepository>;
     groq = {
       isConfigured: true,
-      complete: jest.fn().mockResolvedValue('Check your date of birth and try again.'),
+      complete: jest.fn().mockResolvedValue(ai('Check your date of birth and try again.')),
     } as unknown as jest.Mocked<GroqService>;
     whatsApp = {
       name: 'console',
@@ -99,7 +107,7 @@ describe('SupportService', () => {
   });
 
   describe('handleInbound', () => {
-    it('claims the issue named in the message and replies with the AI answer', async () => {
+    it('claims the issue named in the message and sends the opening message', async () => {
       repo.findIssueByReference.mockResolvedValue(issue());
 
       await service.handleInbound(inbound('Hi Ladder, I need help. Ref: ldr-7k3qx9'));
@@ -107,25 +115,49 @@ describe('SupportService', () => {
       expect(repo.findIssueByReference).toHaveBeenCalledWith('LDR-7K3QX9');
       expect(repo.claimIssue).toHaveBeenCalledWith('issue-1', PHONE);
       expect(repo.updateMessage).toHaveBeenCalledWith('msg-INBOUND', { issueId: 'issue-1' });
-      expect(aiInput()).toContain('The date of birth entered does not match');
-      expect(aiInput()).toContain('"value_entered_ends_with":"8901"');
-      expect(whatsApp.sendText).toHaveBeenCalledWith(
-        PHONE,
-        'Check your date of birth and try again.',
-      );
+      expect(groq.complete).not.toHaveBeenCalled();
+      expect(whatsApp.sendText).toHaveBeenCalledWith(PHONE, OPENER);
       expect(repo.updateMessage).toHaveBeenCalledWith('msg-OUTBOUND', {
         providerMessageId: 'ib-out-1',
         status: 'SENT',
       });
     });
 
-    it('continues the chat on the phone’s latest issue when no reference is sent', async () => {
+    it('saves the language the customer picks and explains the issue in it', async () => {
       repo.findLatestIssueForPhone.mockResolvedValue(issue({ contactPhone: PHONE }));
+      groq.complete.mockResolvedValue(ai('Ọjọ́ ìbí tí o tẹ̀ kò bá ti BVN rẹ mu…', 'Yoruba'));
 
-      await service.handleInbound(inbound('What do I do next?'));
+      await service.handleInbound(inbound('Yoruba'));
 
-      expect(repo.findIssueByReference).not.toHaveBeenCalled();
-      expect(aiInput()).toContain('LDR-7K3QX9');
+      expect(groq.complete).toHaveBeenCalledWith(expect.any(Array), { json: true });
+      expect(aiInput()).toContain('"preferred_language":null');
+      expect(aiInput()).toContain('The date of birth entered does not match');
+      expect(aiInput()).toContain('"value_entered_ends_with":"8901"');
+      expect(repo.setPreferredLanguage).toHaveBeenCalledWith('issue-1', 'Yoruba');
+      expect(sentText()).toBe('Ọjọ́ ìbí tí o tẹ̀ kò bá ti BVN rẹ mu…');
+    });
+
+    it('keeps an already chosen language', async () => {
+      repo.findLatestIssueForPhone.mockResolvedValue(
+        issue({ contactPhone: PHONE, preferredLanguage: 'Yoruba' }),
+      );
+      groq.complete.mockResolvedValue(ai('Ẹ ṣe é! BVN rẹ pari pẹlu **8901**.', 'Yoruba'));
+
+      await service.handleInbound(inbound('ok'));
+
+      expect(sentText()).toBe('Ẹ ṣe é! BVN rẹ pari pẹlu *8901*.');
+
+      expect(aiInput()).toContain('"preferred_language":"Yoruba"');
+      expect(repo.setPreferredLanguage).not.toHaveBeenCalled();
+    });
+
+    it('answers a resent reference on an issue this phone already claimed with the AI', async () => {
+      repo.findIssueByReference.mockResolvedValue(issue({ contactPhone: PHONE }));
+
+      await service.handleInbound(inbound('Ref: LDR-7K3QX9'));
+
+      expect(repo.claimIssue).not.toHaveBeenCalled();
+      expect(sentText()).toBe('Check your date of birth and try again.');
     });
 
     it('does not reveal an issue already claimed by another phone', async () => {
@@ -153,23 +185,26 @@ describe('SupportService', () => {
       expect(aiInput()).not.toContain('22345678901');
     });
 
-    it('asks the AI to rewrite a reply that breaks the rules', async () => {
-      repo.findIssueByReference.mockResolvedValue(issue());
+    it.each([
+      ['breaks the rules', ai('Your account is now open!')],
+      ['is not the requested JSON', 'Please check your date of birth.'],
+    ])('asks the AI to rewrite a reply that %s', async (_case, firstReply) => {
+      repo.findLatestIssueForPhone.mockResolvedValue(issue({ contactPhone: PHONE }));
       groq.complete
-        .mockResolvedValueOnce('Your account is now open!')
-        .mockResolvedValueOnce('Please check your date of birth.');
+        .mockResolvedValueOnce(firstReply)
+        .mockResolvedValueOnce(ai('Please check your date of birth.'));
 
-      await service.handleInbound(inbound('Ref: LDR-7K3QX9'));
+      await service.handleInbound(inbound('English'));
 
       expect(groq.complete).toHaveBeenCalledTimes(2);
       expect(sentText()).toBe('Please check your date of birth.');
     });
 
     it('sends the fixed explanation when the AI is unavailable', async () => {
-      repo.findIssueByReference.mockResolvedValue(issue());
+      repo.findLatestIssueForPhone.mockResolvedValue(issue({ contactPhone: PHONE }));
       groq.complete.mockRejectedValue(new LlmUnavailableError('down'));
 
-      await service.handleInbound(inbound('Ref: LDR-7K3QX9'));
+      await service.handleInbound(inbound('English'));
 
       expect(sentText()).toContain('ref LDR-7K3QX9');
       expect(sentText()).toContain('*What went wrong:* The date of birth entered does not match');
