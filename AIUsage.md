@@ -1,5 +1,7 @@
 # Ladder Backend — Architecture & Rules
 
+> **AI usage:** We used Claude AI (by Anthropic) as a development assistant on this project. The rules below are the guidelines the team wrote and followed while building it, with Claude's help.
+
 Read this before writing code in `ladder-backend`. If a rule changes, update this file in the same change.
 
 ## 1. What it does

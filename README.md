@@ -39,7 +39,7 @@ Every response uses the same shape:
 { "success": false, "message": "...", "code": "OTP_INVALID", "errors": {} }
 ```
 
-The request bodies, error codes and status codes for each route are in [architeture.md §5](architeture.md#5-api-rules).
+The request bodies, error codes and status codes for each route are in [AIUsage.md §5](AIUsage.md#5-api-rules).
 
 ## Security
 
@@ -111,4 +111,4 @@ src/
 test/            End-to-end tests
 ```
 
-Before changing code, read [architeture.md](architeture.md). It covers the layer rules, naming, data model and the checklist for finishing a change.
+Before changing code, read [AIUsage.md](AIUsage.md). It covers the layer rules, naming, data model and the checklist for finishing a change.

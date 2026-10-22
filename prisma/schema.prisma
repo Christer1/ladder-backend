@@ -46,6 +46,33 @@ enum AssistanceMethod {
   LADDER_ID
 }
 
+// Why an assistance identify failed. The partner screen only ever shows one generic error; the
+// reason is kept for the WhatsApp help chat, which explains it to the customer who typed it.
+enum AssistanceIssueReason {
+  NOT_FOUND
+  INVALID
+  DOB_MISMATCH
+  // BVN and NIN each matched the date of birth but belong to different people.
+  DIFFERENT_PEOPLE
+  LADDER_ID_UNKNOWN
+  // The Ladder ID exists but its owner has no verified BVN or NIN yet.
+  LADDER_ID_NOT_VERIFIED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum DeliveryStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  RECEIVED
+}
+
 model User {
   id                 String          @id @default(uuid())
   email              String          @unique
@@ -157,4 +184,50 @@ model AssistanceSession {
 
   @@index([userId])
   @@map("assistance_sessions")
+}
+
+// A failed assistance identify, logged so the customer can get help on WhatsApp. The partner screen
+// links to WhatsApp with the reference pre-typed; the first phone that sends it claims the issue.
+model AssistanceIssue {
+  id           String                @id @default(uuid())
+  reference    String                @unique
+  partnerId    String                @map("partner_id")
+  method       AssistanceMethod
+  // BVN or NIN when one of them failed; null for Ladder IDs.
+  failedType   VerificationType?     @map("failed_type")
+  reason       AssistanceIssueReason
+  // Only the last 4 characters of what was typed, e.g. *******8901.
+  maskedValue  String                @map("masked_value")
+  contactPhone String?               @map("contact_phone")
+  // Until then an unclaimed reference can be claimed.
+  expiresAt    DateTime              @map("expires_at")
+  createdAt    DateTime              @default(now()) @map("created_at")
+  updatedAt    DateTime              @updatedAt @map("updated_at")
+
+  messages WhatsAppMessage[]
+
+  @@index([contactPhone])
+  @@map("assistance_issues")
+}
+
+// Every WhatsApp message to or from a customer. Long numbers are masked before storing.
+model WhatsAppMessage {
+  id                String           @id @default(uuid())
+  issueId           String?          @map("issue_id")
+  direction         MessageDirection
+  // The customer's number, E.164 (+234...).
+  phone             String
+  body              String
+  // Infobip's messageId: repeated webhook deliveries are ignored, reports are matched by it.
+  providerMessageId String?          @unique @map("provider_message_id")
+  status            DeliveryStatus
+  errorCode         String?          @map("error_code")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+
+  issue AssistanceIssue? @relation(fields: [issueId], references: [id], onDelete: SetNull)
+
+  @@index([phone, createdAt])
+  @@index([issueId])
+  @@map("whatsapp_messages")
 }
