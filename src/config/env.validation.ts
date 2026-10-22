@@ -65,6 +65,22 @@ export class EnvironmentVariables {
   @IsIn(['mock', 'registry'])
   IDENTITY_PROVIDER: 'mock' | 'registry' = 'registry';
 
+  // Partners allowed to use the assistance flow; ladder-assistance sends one as X-Partner-Id.
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string'
+      ? value
+          .split(',')
+          .map((id) => id.trim())
+          .filter(Boolean)
+      : value,
+  )
+  @IsString({ each: true })
+  @ArrayNotEmpty()
+  ASSISTANCE_PARTNER_IDS: string[] = ['zenith'];
+
+  @IsString()
+  ASSISTANCE_COOKIE_NAME = 'ladder_assistance_session';
+
   @IsString()
   @IsNotEmpty()
   BREVO_API_KEY: string;

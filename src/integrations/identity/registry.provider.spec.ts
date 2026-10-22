@@ -17,7 +17,10 @@ describe('RegistryIdentityProvider', () => {
   let provider: RegistryIdentityProvider;
 
   beforeEach(() => {
-    records = { findByNumber: jest.fn() } as unknown as jest.Mocked<IdentityRecordRepository>;
+    records = {
+      findByNumber: jest.fn(),
+      findById: jest.fn(),
+    } as unknown as jest.Mocked<IdentityRecordRepository>;
     provider = new RegistryIdentityProvider(records);
   });
 
@@ -53,5 +56,26 @@ describe('RegistryIdentityProvider', () => {
       isVerified: false,
       failure: 'DOB_MISMATCH',
     });
+  });
+
+  it('returns the person behind a verified record', async () => {
+    records.findById.mockResolvedValue(
+      record({ firstName: 'Ada', lastName: 'Okafor', phoneNumber: '08012345678', town: 'Ikeja' }),
+    );
+    await expect(provider.getPerson('rec-1')).resolves.toMatchObject({
+      firstName: 'Ada',
+      lastName: 'Okafor',
+      dateOfBirth: '1990-05-17',
+      phoneNumber: '08012345678',
+      town: 'Ikeja',
+    });
+  });
+
+  it('returns no person for unknown or invalid records', async () => {
+    records.findById.mockResolvedValue(null);
+    await expect(provider.getPerson('nope')).resolves.toBeNull();
+
+    records.findById.mockResolvedValue(record({ isValid: false }));
+    await expect(provider.getPerson('rec-1')).resolves.toBeNull();
   });
 });

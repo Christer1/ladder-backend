@@ -47,6 +47,7 @@ describe('VerificationService', () => {
       name: 'test',
       verifyBvn: jest.fn().mockResolvedValue({ isVerified: true, providerRef: 'rec-1' }),
       verifyNin: jest.fn().mockResolvedValue({ isVerified: true, providerRef: 'rec-2' }),
+      getPerson: jest.fn(),
     };
     const config = { get: jest.fn().mockReturnValue(KEY) } as unknown as ConfigService;
 

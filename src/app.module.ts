@@ -8,6 +8,7 @@ import { SessionGuard } from './common/guards/session.guard';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './database/prisma.module';
+import { AssistanceModule } from './modules/assistance/assistance.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { VerificationModule } from './modules/verification/verification.module';
@@ -27,6 +28,7 @@ const toFieldErrors = (errors: ValidationError[]): AppError =>
     AuthModule,
     UsersModule,
     VerificationModule,
+    AssistanceModule,
   ],
   providers: [
     // Guards run in this order: rate limit first, then session.

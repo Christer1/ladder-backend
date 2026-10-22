@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { VerificationType } from '@prisma/client';
 import { IdentityRecordRepository } from './identity-record.repository';
-import { IdentityProvider, IdentityResult } from './identity.provider';
+import { IdentityPerson, IdentityProvider, IdentityResult } from './identity.provider';
 
 // Test-only provider: checks BVN/NIN against the seeded identity_records table.
 @Injectable()
@@ -16,6 +16,23 @@ export class RegistryIdentityProvider implements IdentityProvider {
 
   verifyNin(nin: string, dateOfBirth: string): Promise<IdentityResult> {
     return this.check(VerificationType.NIN, nin, dateOfBirth);
+  }
+
+  async getPerson(providerRef: string): Promise<IdentityPerson | null> {
+    const record = await this.records.findById(providerRef);
+    if (!record?.isValid) return null;
+    return {
+      firstName: record.firstName,
+      lastName: record.lastName,
+      dateOfBirth: record.dateOfBirth.toISOString().slice(0, 10),
+      gender: record.gender,
+      phoneNumber: record.phoneNumber,
+      email: record.email,
+      stateOfOrigin: record.stateOfOrigin,
+      stateOfResidence: record.stateOfResidence,
+      town: record.town,
+      residentialAddress: record.residentialAddress,
+    };
   }
 
   private async check(

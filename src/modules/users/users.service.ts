@@ -4,7 +4,7 @@ import { AppError } from '../../common/errors/app-error';
 import { generateLadderId } from '../../common/utils/ladder-id';
 import { maskLast4 } from '../../common/utils/mask';
 import { ProfileResponse } from './dto/profile.response';
-import { UsersRepository } from './users.repository';
+import { UsersRepository, UserWithVerifications } from './users.repository';
 
 const IDENTITY_NUMBER_LENGTH = 11; // BVN and NIN
 const LADDER_ID_MAX_TRIES = 5;
@@ -21,6 +21,10 @@ export class UsersService {
 
   findByEmail(email: string): Promise<User | null> {
     return this.usersRepository.findByEmail(email);
+  }
+
+  findByLadderId(ladderId: string): Promise<UserWithVerifications | null> {
+    return this.usersRepository.findByLadderIdWithVerifications(ladderId);
   }
 
   // Creates a pending user, or resets the password of one whose email is not verified yet.

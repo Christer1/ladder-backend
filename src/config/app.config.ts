@@ -5,6 +5,10 @@ export const OTP_TTL_SECONDS = 10 * 60;
 export const OTP_RESEND_COOLDOWN_SECONDS = 45; // the 00:45 timer on the OTP screen
 export const OTP_MAX_ATTEMPTS = 5;
 
+// ladder-assistance: one customer's identify → liveness → details visit.
+export const ASSISTANCE_SESSION_TTL_MINUTES = 30;
+export const PARTNER_ID_HEADER = 'x-partner-id';
+
 // Government ID and liveness uploads. Files are checked, then discarded: no document storage or
 // provider check exists yet (architeture.md §5).
 export const UPLOAD_MAX_BYTES = 5 * 1024 * 1024;

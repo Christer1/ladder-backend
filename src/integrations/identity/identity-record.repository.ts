@@ -9,4 +9,8 @@ export class IdentityRecordRepository {
   findByNumber(type: VerificationType, number: string): Promise<IdentityRecord | null> {
     return this.prisma.identityRecord.findUnique({ where: { type_number: { type, number } } });
   }
+
+  findById(id: string): Promise<IdentityRecord | null> {
+    return this.prisma.identityRecord.findUnique({ where: { id } });
+  }
 }

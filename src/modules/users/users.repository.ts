@@ -21,6 +21,10 @@ export class UsersRepository {
     return this.prisma.user.findUnique({ where: { id }, include: withVerifications });
   }
 
+  findByLadderIdWithVerifications(ladderId: string): Promise<UserWithVerifications | null> {
+    return this.prisma.user.findUnique({ where: { ladderId }, include: withVerifications });
+  }
+
   upsertByEmail(email: string, passwordHash: string): Promise<User> {
     return this.prisma.user.upsert({
       where: { email },
