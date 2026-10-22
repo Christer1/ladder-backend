@@ -4,7 +4,7 @@ Read this before writing code in `ladder-backend`. If a rule changes, update thi
 
 ## 1. What it does
 
-Serves `ladder-web`. A user signs up (email + password + confirm password), verifies their email with an OTP, verifies their identity with a BVN or NIN (plus date of birth) **or** a Government ID, completes a liveness check, and receives a reusable **Ladder ID** (e.g. `LID-7F3A-9K2D`). There is no PIN: users sign in with email and password. Government ID and liveness are recorded by the backend but are **placeholders**: uploaded files are checked (sides, type, size) and then discarded; no document storage, review or liveness provider exists yet. The API contract is in `../ladder-web/rules.md` §8. Keep the two in sync.
+Serves `ladder-web` and `ladder-assistance` (partner account opening, §5 "Assistance"). A user signs up (email + password + confirm password), verifies their email with an OTP, verifies their identity with a BVN or NIN (plus date of birth) **or** a Government ID, completes a liveness check, and receives a reusable **Ladder ID** (e.g. `LID-7F3A-9K2D`). There is no PIN: users sign in with email and password. Government ID and liveness are recorded by the backend but are **placeholders**: uploaded files are checked (sides, type, size) and then discarded; no document storage, review or liveness provider exists yet. The API contract is in `../ladder-web/rules.md` §8. Keep the two in sync.
 
 ## 2. Stack
 
@@ -49,6 +49,7 @@ ladder-backend/
 │   └── modules/               One folder per domain
 │       ├── auth/              signup, login, OTP, logout, session cookie
 │       ├── verification/      BVN, NIN, Government ID, liveness, status
+│       ├── assistance/        partner account opening (ladder-assistance), own cookie + guards
 │       └── users/             profile (/profile/me)
 └── test/                      e2e tests (*.e2e-spec.ts)
 ```
@@ -116,6 +117,22 @@ Rules: password ≥ 8 chars with a letter and a number. Login needs a verified e
 
 **Uploads (placeholder).** Multer in memory, max 5 MB per file (`UPLOAD_MAX_BYTES`). ID files: PNG/JPG/PDF; selfie: JPG/PNG. Files are validated, then dropped: never written to disk, the database or logs. Replace with a document store + review/provider before production.
 
+**Assistance (`ladder-assistance`).** A partner's customer identifies with BVN or NIN, BVN and NIN, or a Ladder ID, passes liveness and reviews the details on file. Routes are `@Public()` to `SessionGuard` and use their own guards: `PartnerGuard` (header `X-Partner-Id` must be in `ASSISTANCE_PARTNER_IDS`, else `403 PARTNER_NOT_ALLOWED`) and `AssistanceSessionGuard` (httpOnly cookie `ASSISTANCE_COOKIE_NAME`, 30 minutes, bound to the partner; else `401 ASSISTANCE_SESSION_EXPIRED`). Statuses are lowercase to match the ladder-assistance contract.
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| POST | `/assistance/identify/bvn` | `{ bvn, dateOfBirth }` | `{ status }` + cookie. `422 INFORMATION_MISMATCH` |
+| POST | `/assistance/identify/nin` | `{ nin, dateOfBirth }` | same |
+| POST | `/assistance/identify/bvn-and-nin` | `{ bvn, nin, dateOfBirth }` | same; both must match the date of birth and the same name |
+| POST | `/assistance/identify/ladder-id` | `{ ladderId }` (6–32 letters, digits, dashes; any case) | same. `422 LADDER_ID_NOT_FOUND` |
+| POST | `/assistance/liveness` | multipart file `selfie` | `{ status }` (placeholder, like `/verification/liveness`) |
+| GET | `/assistance/status` | – | `{ method, identity, liveness }` |
+| GET | `/assistance/details` | – | `{ fullName, dateOfBirth, gender, phoneNumber, email, stateOfOrigin, stateOfResidence, town, residentialAddress }`. `403 LIVENESS_REQUIRED` before liveness |
+| POST | `/assistance/confirm` | `{ residentialAddress? }` (only when none on file) | `{}` |
+| POST | `/assistance/session/end` | – | clears cookie |
+
+Rules: a wrong number, an unknown number, an invalid record and a wrong date of birth all answer `INFORMATION_MISMATCH`, so the screen can't be used to find out which numbers exist. Unknown and unverified Ladder IDs share `LADDER_ID_NOT_FOUND`. A Ladder ID qualifies when its user is `VERIFIED` with a verified BVN (else NIN); details come from that record via `IdentityProvider.getPerson(providerRef)`, with the user's account email. Identify is limited to 10/min. The session stores only the token hash and the provider ref, never identity numbers. Handing confirmed details to the partner is not built yet.
+
 BVN/NIN errors (`422`): `BVN_NOT_FOUND`, `BVN_INVALID`, `BVN_DOB_MISMATCH` (and the `NIN_` equivalents). Brevo failure: `502 EMAIL_SEND_FAILED`.
 
 ## 6. Model rules
@@ -135,7 +152,8 @@ Starting models:
 | `Otp` | `email`, `codeHash`, `purpose` (`SIGNUP`), `expiresAt`, `attempts`, `consumedAt?` |
 | `Verification` | `userId`, `type` (`BVN`/`NIN`/`GOVERNMENT_ID`/`LIVENESS`), `status` (`PENDING`/`VERIFIED`/`FAILED`), `valueEncrypted?`, `last4?`, `documentType?` (Government ID type), `provider`, `providerRef?` (liveness: the challenges), `failureReason?` (`NOT_FOUND`/`INVALID`/`DOB_MISMATCH`), `verifiedAt?`. Unique on `(userId, type)` |
 | `Session` | `userId`, `tokenHash`, `expiresAt`, `revokedAt?` |
-| `IdentityRecord` | Mock registry: `type`, `number` (unique per type), `dateOfBirth`, `firstName`, `lastName`, `isValid` |
+| `IdentityRecord` | Mock registry: `type`, `number` (unique per type), `dateOfBirth`, `firstName`, `lastName`, `isValid`, plus optional profile shown by assistance: `gender`, `phoneNumber`, `email`, `stateOfOrigin`, `stateOfResidence`, `town`, `residentialAddress`. The seed adds 6 people with both a BVN and a NIN (same name and date of birth) |
+| `AssistanceSession` | `tokenHash`, `partnerId`, `method` (`BVN`/`NIN`/`BVN_AND_NIN`/`LADDER_ID`), `providerRef`, `userId?` (Ladder ID), `livenessVerifiedAt?`, `confirmedAt?`, `expiresAt`, `revokedAt?` |
 
 ## 7. Naming
 
@@ -153,7 +171,7 @@ Starting models:
 - Rate-limit all `/auth` endpoints. Lock OTP after 5 wrong attempts.
 - Tests never send real email: unit tests stub `fetch`, e2e tests replace `MailService`, and e2e runs on the local `ladder_test` database only.
 - Secrets come from env only; `.env` is never committed (`.env.example` is).
-- CORS allows only the `ladder-web` origin, with credentials.
+- CORS allows only the `WEB_ORIGIN` list (ladder-web and ladder-assistance), with credentials.
 
 ## 9. Open questions
 

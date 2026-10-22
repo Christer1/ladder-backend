@@ -86,6 +86,29 @@ export const ERROR_CODES = {
     status: HttpStatus.PAYLOAD_TOO_LARGE,
     message: 'The file must be 5 MB or smaller.',
   },
+
+  // ladder-assistance. Wrong numbers and wrong dates of birth share one answer, so a partner screen
+  // can't be used to discover which BVNs, NINs or Ladder IDs exist.
+  INFORMATION_MISMATCH: {
+    status: HttpStatus.UNPROCESSABLE_ENTITY,
+    message: 'Information mismatch. The details you entered don’t match our records.',
+  },
+  LADDER_ID_NOT_FOUND: {
+    status: HttpStatus.UNPROCESSABLE_ENTITY,
+    message: 'We couldn’t verify this Ladder ID. Check it and try again.',
+  },
+  LIVENESS_REQUIRED: {
+    status: HttpStatus.FORBIDDEN,
+    message: 'Complete the liveness check first.',
+  },
+  ASSISTANCE_SESSION_EXPIRED: {
+    status: HttpStatus.UNAUTHORIZED,
+    message: 'Your session has expired. Please start again.',
+  },
+  PARTNER_NOT_ALLOWED: {
+    status: HttpStatus.FORBIDDEN,
+    message: 'This partner is not set up for account opening.',
+  },
   EMAIL_SEND_FAILED: {
     status: HttpStatus.BAD_GATEWAY,
     message: 'We could not send the email. Please try again.',

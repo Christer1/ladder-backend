@@ -5,6 +5,7 @@ import { CookieOptions, Response } from 'express';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { ResponseMessage } from '../../common/decorators/response-message.decorator';
+import { sessionCookieOptions } from '../../common/utils/cookie';
 import { EnvironmentVariables } from '../../config/env.validation';
 import { AuthService } from './auth.service';
 import { OtpSentResponse, SessionResponse } from './dto/auth.response';
@@ -77,13 +78,7 @@ export class AuthController {
   }
 
   private get cookieOptions(): CookieOptions {
-    const sameSite = this.config.get('COOKIE_SAME_SITE', { infer: true });
-    return {
-      httpOnly: true,
-      secure: sameSite === 'none' || this.config.get('NODE_ENV', { infer: true }) === 'production',
-      sameSite,
-      path: '/',
-    };
+    return sessionCookieOptions(this.config);
   }
 
   private get cookieName(): string {
