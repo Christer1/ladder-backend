@@ -1,4 +1,11 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes, randomInt } from 'crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+  randomInt,
+  timingSafeEqual,
+} from 'crypto';
 import * as argon2 from 'argon2';
 
 // One-way hash for secrets the user types (password, OTP).
@@ -10,6 +17,10 @@ export const verifySecret = (hash: string, value: string): Promise<boolean> =>
 
 // Fast hash for high-entropy tokens (session tokens) so they can be looked up by hash.
 export const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex');
+
+// Constant-time comparison for shared secrets (webhook tokens). Hashing first evens out lengths.
+export const safeEqual = (a: string, b: string): boolean =>
+  timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest());
 
 export const randomToken = (bytes = 32): string => randomBytes(bytes).toString('base64url');
 

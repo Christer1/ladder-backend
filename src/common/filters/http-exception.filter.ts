@@ -16,6 +16,7 @@ export interface ApiErrorBody {
   message: string;
   code: string;
   errors?: Record<string, string[]>;
+  details?: Record<string, unknown>;
 }
 
 const STATUS_TO_CODE: Partial<Record<number, ErrorCode>> = {
@@ -48,6 +49,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
           message: exception.message,
           code: exception.code,
           ...(exception.fieldErrors && { errors: exception.fieldErrors }),
+          ...(exception.details && { details: exception.details }),
         },
       };
     }
