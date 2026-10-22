@@ -17,7 +17,7 @@ Serves `ladder-web` and `ladder-assistance` (partner account opening, §5 "Assis
 | Database / ORM | PostgreSQL on Supabase (schema `public`) + Prisma. `DATABASE_URL` = pooled (app), `DIRECT_URL` = direct (migrations) |
 | Validation | `class-validator` DTOs + global `ValidationPipe` |
 | Auth | Opaque session token in an httpOnly, SameSite cookie (Secure in production); only its SHA-256 hash is stored |
-| Email | Brevo transactional API, sender `official@bovaplay.com` |
+| Email | Brevo transactional API; the sender is `EMAIL_FROM` (an address verified in Brevo) |
 | Rate limiting | `@nestjs/throttler` |
 | Tests | Jest + Supertest |
 | Package manager | npm |
@@ -178,7 +178,6 @@ Starting models:
 ## 9. Open questions
 
 1. Identity vendor: `IDENTITY_PROVIDER=registry` (seeded test data) until a real vendor is chosen. Both `registry` and `mock` are blocked in production.
-2. The previous project's tables were moved to the `old_public` schema in Supabase; nothing in this backend reads them.
 
 ## 10. Definition of done
 
