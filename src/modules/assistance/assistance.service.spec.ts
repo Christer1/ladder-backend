@@ -1,6 +1,7 @@
 import { AssistanceSession, User, Verification } from '@prisma/client';
 import { sha256 } from '../../common/utils/crypto';
 import { IdentityPerson, IdentityProvider } from '../../integrations/identity/identity.provider';
+import { SupportService } from '../support/support.service';
 import { UserWithVerifications } from '../users/users.repository';
 import { UsersService } from '../users/users.service';
 import { AssistanceRepository } from './assistance.repository';
@@ -40,6 +41,8 @@ const ladderUser = (verifications: Partial<Verification>[]): UserWithVerificatio
     verifications,
   }) as UserWithVerifications;
 
+const HELP = { helpReference: 'LDR-7K3QX9', whatsappUrl: 'https://wa.me/447860088970?text=x' };
+
 const expectCode = async (promise: Promise<unknown>, code: string) => {
   await expect(promise).rejects.toMatchObject({ code });
 };
@@ -48,6 +51,7 @@ describe('AssistanceService', () => {
   let repo: jest.Mocked<AssistanceRepository>;
   let users: jest.Mocked<UsersService>;
   let provider: jest.Mocked<IdentityProvider>;
+  let support: jest.Mocked<SupportService>;
   let service: AssistanceService;
 
   beforeEach(() => {
@@ -66,7 +70,10 @@ describe('AssistanceService', () => {
       verifyNin: jest.fn().mockResolvedValue({ isVerified: true, providerRef: 'rec-nin' }),
       getPerson: jest.fn().mockResolvedValue(person()),
     };
-    service = new AssistanceService(repo, users, provider);
+    support = {
+      openIssue: jest.fn().mockResolvedValue(HELP),
+    } as unknown as jest.Mocked<SupportService>;
+    service = new AssistanceService(repo, users, provider, support);
   });
 
   describe('identify with BVN or NIN', () => {
@@ -93,6 +100,31 @@ describe('AssistanceService', () => {
         expect(repo.createSession).not.toHaveBeenCalled();
       },
     );
+
+    it('logs the real reason as a help issue and returns the WhatsApp link with the error', async () => {
+      provider.verifyBvn.mockResolvedValue({ isVerified: false, failure: 'DOB_MISMATCH' });
+
+      await expect(service.identifyBvn('zenith', '22345678901', DOB)).rejects.toMatchObject({
+        code: 'INFORMATION_MISMATCH',
+        details: HELP,
+      });
+      expect(support.openIssue).toHaveBeenCalledWith({
+        partnerId: 'zenith',
+        method: 'BVN',
+        failedType: 'BVN',
+        reason: 'DOB_MISMATCH',
+        enteredValue: '22345678901',
+      });
+    });
+
+    it('still answers INFORMATION_MISMATCH, without a link, when the issue cannot be logged', async () => {
+      provider.verifyBvn.mockResolvedValue({ isVerified: false, failure: 'NOT_FOUND' });
+      support.openIssue.mockRejectedValue(new Error('database down'));
+
+      const error = await service.identifyBvn('zenith', '22345678901', DOB).catch((e) => e);
+      expect(error).toMatchObject({ code: 'INFORMATION_MISMATCH' });
+      expect(error.details).toBeUndefined();
+    });
   });
 
   describe('identify with BVN and NIN', () => {
@@ -110,6 +142,9 @@ describe('AssistanceService', () => {
       await expectCode(
         service.identifyBvnAndNin('zenith', '22345678901', '71234568901', DOB),
         'INFORMATION_MISMATCH',
+      );
+      expect(support.openIssue).toHaveBeenCalledWith(
+        expect.objectContaining({ method: 'BVN_AND_NIN', reason: 'DIFFERENT_PEOPLE' }),
       );
     });
 
@@ -148,6 +183,13 @@ describe('AssistanceService', () => {
     ])('rejects a Ladder ID that is %s with one error', async (_case, user) => {
       users.findByLadderId.mockResolvedValue(user as UserWithVerifications | null);
       await expectCode(service.identifyLadderId('zenith', 'LID-ABCD-EFGH'), 'LADDER_ID_NOT_FOUND');
+      expect(support.openIssue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: 'LADDER_ID',
+          failedType: null,
+          reason: user ? 'LADDER_ID_NOT_VERIFIED' : 'LADDER_ID_UNKNOWN',
+        }),
+      );
     });
   });
 

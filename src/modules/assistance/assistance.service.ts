@@ -1,5 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
+  AssistanceIssueReason,
   AssistanceMethod,
   AssistanceSession,
   UserStatus,
@@ -7,6 +8,7 @@ import {
   VerificationType,
 } from '@prisma/client';
 import { AppError } from '../../common/errors/app-error';
+import { ErrorCode } from '../../common/errors/error-codes';
 import { randomToken, sha256 } from '../../common/utils/crypto';
 import { ASSISTANCE_SESSION_TTL_MINUTES, SELFIE_FILE_TYPES } from '../../config/app.config';
 import {
@@ -14,6 +16,7 @@ import {
   IdentityPerson,
   IdentityProvider,
 } from '../../integrations/identity/identity.provider';
+import { NewAssistanceIssue, SupportService } from '../support/support.service';
 import { UsersService } from '../users/users.service';
 import { UploadedImage } from '../verification/verification.service';
 import {
@@ -49,14 +52,20 @@ const PLACEHOLDER_PROFILE = {
 // Ladder ID lookups read the person behind the user's verified BVN, else NIN.
 const LADDER_ID_SOURCES: readonly VerificationType[] = [VerificationType.BVN, VerificationType.NIN];
 
+type IdType = typeof VerificationType.BVN | typeof VerificationType.NIN;
+
 // Partner account opening (ladder-assistance): identify with BVN/NIN or a Ladder ID, pass liveness,
 // then review the details on file. Nothing personal is returned until liveness passes.
+// A failed identify is logged as an issue the customer can get help with on WhatsApp.
 @Injectable()
 export class AssistanceService {
+  private readonly logger = new Logger(AssistanceService.name);
+
   constructor(
     private readonly assistanceRepository: AssistanceRepository,
     private readonly usersService: UsersService,
     @Inject(IDENTITY_PROVIDER) private readonly identityProvider: IdentityProvider,
+    private readonly supportService: SupportService,
   ) {}
 
   async identifyBvn(
@@ -64,7 +73,13 @@ export class AssistanceService {
     bvn: string,
     dateOfBirth: string,
   ): Promise<StartedAssistanceSession> {
-    const providerRef = await this.match(VerificationType.BVN, bvn, dateOfBirth);
+    const providerRef = await this.match(
+      partnerId,
+      AssistanceMethod.BVN,
+      VerificationType.BVN,
+      bvn,
+      dateOfBirth,
+    );
     return this.startSession(partnerId, AssistanceMethod.BVN, providerRef);
   }
 
@@ -73,7 +88,13 @@ export class AssistanceService {
     nin: string,
     dateOfBirth: string,
   ): Promise<StartedAssistanceSession> {
-    const providerRef = await this.match(VerificationType.NIN, nin, dateOfBirth);
+    const providerRef = await this.match(
+      partnerId,
+      AssistanceMethod.NIN,
+      VerificationType.NIN,
+      nin,
+      dateOfBirth,
+    );
     return this.startSession(partnerId, AssistanceMethod.NIN, providerRef);
   }
 
@@ -84,16 +105,23 @@ export class AssistanceService {
     nin: string,
     dateOfBirth: string,
   ): Promise<StartedAssistanceSession> {
-    const bvnRef = await this.match(VerificationType.BVN, bvn, dateOfBirth);
-    const ninRef = await this.match(VerificationType.NIN, nin, dateOfBirth);
+    const method = AssistanceMethod.BVN_AND_NIN;
+    const bvnRef = await this.match(partnerId, method, VerificationType.BVN, bvn, dateOfBirth);
+    const ninRef = await this.match(partnerId, method, VerificationType.NIN, nin, dateOfBirth);
     const [bvnPerson, ninPerson] = await Promise.all([
       this.identityProvider.getPerson(bvnRef),
       this.identityProvider.getPerson(ninRef),
     ]);
     if (!bvnPerson || !ninPerson || !isSamePerson(bvnPerson, ninPerson)) {
-      throw new AppError('INFORMATION_MISMATCH');
+      throw await this.failWithHelp('INFORMATION_MISMATCH', {
+        partnerId,
+        method,
+        failedType: VerificationType.NIN,
+        reason: AssistanceIssueReason.DIFFERENT_PEOPLE,
+        enteredValue: nin,
+      });
     }
-    return this.startSession(partnerId, AssistanceMethod.BVN_AND_NIN, bvnRef);
+    return this.startSession(partnerId, method, bvnRef);
   }
 
   // A Ladder ID qualifies once its owner is verified with a BVN or NIN, the source of the details.
@@ -111,7 +139,17 @@ export class AssistanceService {
             ),
           ).find((v) => v?.providerRef)
         : undefined;
-    if (!user || !source?.providerRef) throw new AppError('LADDER_ID_NOT_FOUND');
+    if (!user || !source?.providerRef) {
+      throw await this.failWithHelp('LADDER_ID_NOT_FOUND', {
+        partnerId,
+        method: AssistanceMethod.LADDER_ID,
+        failedType: null,
+        reason: user
+          ? AssistanceIssueReason.LADDER_ID_NOT_VERIFIED
+          : AssistanceIssueReason.LADDER_ID_UNKNOWN,
+        enteredValue: ladderId,
+      });
+    }
 
     return this.startSession(partnerId, AssistanceMethod.LADDER_ID, source.providerRef, user.id);
   }
@@ -183,9 +221,12 @@ export class AssistanceService {
     await this.assistanceRepository.updateSession(session.id, { revokedAt: new Date() });
   }
 
-  // Not found, invalid and wrong date of birth all answer INFORMATION_MISMATCH.
+  // Not found, invalid and wrong date of birth all answer INFORMATION_MISMATCH. The real reason is
+  // kept on the help issue only.
   private async match(
-    type: typeof VerificationType.BVN | typeof VerificationType.NIN,
+    partnerId: string,
+    method: AssistanceMethod,
+    type: IdType,
     number: string,
     dateOfBirth: string,
   ): Promise<string> {
@@ -193,8 +234,27 @@ export class AssistanceService {
       type === VerificationType.BVN
         ? await this.identityProvider.verifyBvn(number, dateOfBirth)
         : await this.identityProvider.verifyNin(number, dateOfBirth);
-    if (!result.isVerified || !result.providerRef) throw new AppError('INFORMATION_MISMATCH');
+    if (!result.isVerified || !result.providerRef) {
+      throw await this.failWithHelp('INFORMATION_MISMATCH', {
+        partnerId,
+        method,
+        failedType: type,
+        reason: result.failure ?? AssistanceIssueReason.NOT_FOUND,
+        enteredValue: number,
+      });
+    }
     return result.providerRef;
+  }
+
+  // The identify error, with the WhatsApp help link when the issue could be logged. Logging never
+  // turns a mismatch into a different error.
+  private async failWithHelp(code: ErrorCode, issue: NewAssistanceIssue): Promise<AppError> {
+    try {
+      return new AppError(code, undefined, { ...(await this.supportService.openIssue(issue)) });
+    } catch (error) {
+      this.logger.error(`Could not log the help issue: ${(error as Error).stack}`);
+      return new AppError(code);
+    }
   }
 
   private async startSession(

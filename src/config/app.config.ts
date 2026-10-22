@@ -9,8 +9,14 @@ export const OTP_MAX_ATTEMPTS = 5;
 export const ASSISTANCE_SESSION_TTL_MINUTES = 30;
 export const PARTNER_ID_HEADER = 'x-partner-id';
 
+// WhatsApp help chat for failed identifies. An unclaimed reference expires after a day; a claimed
+// one keeps the chat going for a week. Free-form replies only work within WhatsApp's 24-hour window.
+export const HELP_REFERENCE_TTL_HOURS = 24;
+export const HELP_CHAT_TTL_DAYS = 7;
+export const HELP_TRANSCRIPT_MESSAGES = 12;
+
 // Government ID and liveness uploads. Files are checked, then discarded: no document storage or
-// provider check exists yet (architeture.md §5).
+// provider check exists yet (AIUsage.md §5).
 export const UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 export const ID_FILE_TYPES = ['image/png', 'image/jpeg', 'application/pdf'] as const;
 export const SELFIE_FILE_TYPES = ['image/jpeg', 'image/png'] as const;

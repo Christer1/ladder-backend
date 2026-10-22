@@ -113,6 +113,10 @@ export const ERROR_CODES = {
     status: HttpStatus.BAD_GATEWAY,
     message: 'We could not send the email. Please try again.',
   },
+  WHATSAPP_SEND_FAILED: {
+    status: HttpStatus.BAD_GATEWAY,
+    message: 'We could not send the WhatsApp message.',
+  },
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_CODES;

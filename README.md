@@ -1,6 +1,6 @@
 # Ladder Backend
 
-NestJS + Prisma API for `ladder-web`, on Supabase Postgres with Brevo for email. Rules and structure: [architeture.md](architeture.md).
+NestJS + Prisma API for `ladder-web`, on Supabase Postgres with Brevo for email. Rules and structure: [AIUsage.md](AIUsage.md).
 
 ## Setup
 

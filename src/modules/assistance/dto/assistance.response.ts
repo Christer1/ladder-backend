@@ -1,4 +1,4 @@
-// Shapes match ladder-assistance (its rules.md §7), which uses lowercase statuses.
+// Shapes match ladder-assistance (its AIUsage.md §7), which uses lowercase statuses.
 export type AssistanceMethodName = 'bvn' | 'nin' | 'bvn-and-nin' | 'ladder-id';
 export type AssistanceStepStatus = 'not_started' | 'verified';
 

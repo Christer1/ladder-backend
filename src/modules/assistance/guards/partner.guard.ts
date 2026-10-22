@@ -6,7 +6,7 @@ import { EnvironmentVariables } from '../../../config/env.validation';
 import { AssistanceRequest } from './assistance-request';
 
 // Every assistance request names its partner in X-Partner-Id. It is a public identifier, not a
-// secret: real partner authentication is still an open question (architeture.md §9).
+// secret: real partner authentication is still an open question (AIUsage.md §9).
 @Injectable()
 export class PartnerGuard implements CanActivate {
   constructor(private readonly config: ConfigService<EnvironmentVariables, true>) {}

@@ -90,6 +90,53 @@ export class EnvironmentVariables {
 
   @IsString()
   EMAIL_FROM_NAME = 'Ladder';
+
+  // WhatsApp help chat. console prints messages instead of sending them (local dev, tests).
+  @IsIn(['infobip', 'console'])
+  WHATSAPP_PROVIDER: 'infobip' | 'console' = 'console';
+
+  // From Infobip Developer Tools → API keys, e.g. abc123.api.infobip.com (https:// is assumed).
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string'
+      ? `${/^https?:\/\//.test(value) ? '' : 'https://'}${value.trim()}`.replace(/\/$/, '')
+      : value,
+  )
+  @IsOptional()
+  @IsUrl()
+  INFOBIP_BASE_URL?: string;
+
+  @IsOptional()
+  @IsString()
+  INFOBIP_API_KEY?: string;
+
+  // The WhatsApp sender, digits only (Infobip's format): 447860088970.
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.replace(/\D/g, '') : value,
+  )
+  @IsString()
+  @IsNotEmpty()
+  INFOBIP_WHATSAPP_SENDER = '447860088970';
+
+  // Secret Infobip sends as ?token=... on the webhook URLs. Webhooks are refused without it.
+  @IsOptional()
+  @IsString()
+  INFOBIP_WEBHOOK_TOKEN?: string;
+
+  // This API's public URL without /api/v1, for Infobip delivery reports. Unset or localhost = none.
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim().replace(/\/$/, '') : value,
+  )
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  PUBLIC_BASE_URL?: string;
+
+  // Groq writes the WhatsApp replies. Unset = a fixed reply is sent instead.
+  @IsOptional()
+  @IsString()
+  GROQ_API_KEY?: string;
+
+  @IsString()
+  GROQ_MODEL = 'openai/gpt-oss-120b';
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {
@@ -109,6 +156,14 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
     throw new Error(
       'Invalid environment variables:\nENCRYPTION_KEY: must be 32 bytes, base64-encoded',
     );
+  }
+  if (env.WHATSAPP_PROVIDER === 'infobip') {
+    const missing = (['INFOBIP_BASE_URL', 'INFOBIP_API_KEY', 'INFOBIP_WEBHOOK_TOKEN'] as const)
+      .filter((key) => !env[key])
+      .map((key) => `${key}: required when WHATSAPP_PROVIDER is infobip`);
+    if (missing.length > 0) {
+      throw new Error(`Invalid environment variables:\n${missing.join('\n')}`);
+    }
   }
   if (env.NODE_ENV === 'production') {
     throw new Error(

@@ -7,3 +7,7 @@ process.env.DATABASE_URL =
 process.env.DIRECT_URL = process.env.DATABASE_URL;
 process.env.IDENTITY_PROVIDER = 'registry';
 process.env.BREVO_API_KEY = 'test-key-not-used';
+// WhatsApp help chat: messages are logged, not sent, and Groq is never called.
+process.env.WHATSAPP_PROVIDER = 'console';
+process.env.INFOBIP_WEBHOOK_TOKEN = 'test-webhook-token';
+process.env.GROQ_API_KEY = '';
