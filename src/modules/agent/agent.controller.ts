@@ -2,7 +2,13 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query } from 
 import { Public } from '../../common/decorators/public.decorator';
 import { ResponseMessage } from '../../common/decorators/response-message.decorator';
 import { AgentService } from './agent.service';
-import { AgentProfile, CaseDetail, CaseListPage, CaseSummary } from './dto/agent.response';
+import {
+  AgentProfile,
+  CaseDetail,
+  CaseInsights,
+  CaseListPage,
+  CaseSummary,
+} from './dto/agent.response';
 import { AddCaseNoteDto, SendCaseMessageDto } from './dto/case-text.dto';
 import { ListCasesQuery } from './dto/list-cases.query';
 
@@ -21,6 +27,11 @@ export class AgentController {
   @Get('cases/summary')
   getSummary(): Promise<CaseSummary> {
     return this.agentService.getSummary();
+  }
+
+  @Get('insights')
+  getInsights(): Promise<CaseInsights> {
+    return this.agentService.getInsights();
   }
 
   @Get('cases')

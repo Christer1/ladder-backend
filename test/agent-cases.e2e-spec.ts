@@ -141,6 +141,13 @@ describe('Agent cases (e2e)', () => {
 
     const summary = await api().get('/api/v1/agent/cases/summary');
     expect(summary.body.data.resolvedToday).toBeGreaterThanOrEqual(2);
+
+    const insights = (await api().get('/api/v1/agent/insights')).body.data;
+    expect(insights.days).toHaveLength(7);
+    expect(insights.days.at(-1).logged).toBeGreaterThanOrEqual(3);
+    expect(insights.issues).toContainEqual(
+      expect.objectContaining({ title: 'Date of birth mismatch' }),
+    );
   });
 
   it('escalates and resolves a case by hand, once each', async () => {

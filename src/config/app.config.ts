@@ -23,6 +23,8 @@ export const AGENT_NAME = 'Ladder Support';
 export const AGENT_ROLE = 'Support Agent';
 export const AGENT_CASES_PAGE_SIZE = 8;
 export const AGENT_NOTE_MAX_LENGTH = 500;
+// Days shown by the dashboard's Home charts.
+export const AGENT_INSIGHT_DAYS = 7;
 // Partner screens are in Nigeria: "today" for the summary starts at midnight Lagos time (UTC+1).
 export const AGENT_TIMEZONE_OFFSET_HOURS = 1;
 

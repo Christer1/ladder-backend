@@ -40,6 +40,23 @@ export class AgentRepository {
     return Object.fromEntries(rows.map((row) => [row.status, row._count._all]));
   }
 
+  // What the Home charts need about issues logged or resolved since `since`.
+  findActivitySince(since: Date): Promise<{
+    logged: Pick<AssistanceIssue, 'createdAt' | 'reason' | 'failedType'>[];
+    resolved: Pick<AssistanceIssue, 'resolvedAt'>[];
+  }> {
+    return Promise.all([
+      this.prisma.assistanceIssue.findMany({
+        where: { createdAt: { gte: since } },
+        select: { createdAt: true, reason: true, failedType: true },
+      }),
+      this.prisma.assistanceIssue.findMany({
+        where: { resolvedAt: { gte: since } },
+        select: { resolvedAt: true },
+      }),
+    ]).then(([logged, resolved]) => ({ logged, resolved }));
+  }
+
   countResolvedSince(since: Date): Promise<number> {
     return this.prisma.assistanceIssue.count({
       where: { status: AssistanceIssueStatus.RESOLVED, resolvedAt: { gte: since } },

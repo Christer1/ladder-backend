@@ -88,6 +88,13 @@ export interface CaseListPage {
   total: number;
 }
 
+// The dashboard's Home charts: the last INSIGHT_DAYS days, oldest first, in Lagos time.
+export interface CaseInsights {
+  days: Array<{ date: string; logged: number; resolved: number }>;
+  // Most common issues logged in those days, most first.
+  issues: Array<{ title: string; count: number }>;
+}
+
 export interface AgentProfile {
   fullName: string;
   role: string;

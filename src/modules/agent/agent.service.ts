@@ -10,6 +10,7 @@ import {
 import { AppError } from '../../common/errors/app-error';
 import {
   AGENT_CASES_PAGE_SIZE,
+  AGENT_INSIGHT_DAYS,
   AGENT_NAME,
   AGENT_ROLE,
   AGENT_TIMEZONE_OFFSET_HOURS,
@@ -21,6 +22,7 @@ import { AgentRepository, IssueWithNotes } from './agent.repository';
 import {
   AgentProfile,
   CaseDetail,
+  CaseInsights,
   CaseListItem,
   CaseListPage,
   CaseStage,
@@ -97,6 +99,37 @@ export class AgentService {
       needsAttention: count('NEEDS_ATTENTION'),
       resolvedToday,
       total: Object.values(counts).reduce((sum, n) => sum + (n ?? 0), 0),
+    };
+  }
+
+  async getInsights(): Promise<CaseInsights> {
+    const today = startOfToday();
+    const dates = Array.from({ length: AGENT_INSIGHT_DAYS }, (_, i) =>
+      lagosDate(new Date(today.getTime() - (AGENT_INSIGHT_DAYS - 1 - i) * DAY_MS)),
+    );
+    const since = new Date(today.getTime() - (AGENT_INSIGHT_DAYS - 1) * DAY_MS);
+    const { logged, resolved } = await this.agentRepository.findActivitySince(since);
+
+    const countBy = (keys: string[]) =>
+      keys.reduce<Record<string, number>>(
+        (acc, key) => ({ ...acc, [key]: (acc[key] ?? 0) + 1 }),
+        {},
+      );
+    const loggedPerDay = countBy(logged.map((i) => lagosDate(i.createdAt)));
+    const resolvedPerDay = countBy(resolved.map((i) => lagosDate(i.resolvedAt as Date)));
+    const perIssue = countBy(
+      logged.map((i) => REASON_TITLES[i.reason](i.failedType ?? 'Ladder ID')),
+    );
+
+    return {
+      days: dates.map((date) => ({
+        date,
+        logged: loggedPerDay[date] ?? 0,
+        resolved: resolvedPerDay[date] ?? 0,
+      })),
+      issues: Object.entries(perIssue)
+        .map(([title, count]) => ({ title, count }))
+        .sort((a, b) => b.count - a.count || a.title.localeCompare(b.title)),
     };
   }
 
@@ -251,9 +284,15 @@ function searchFilters(search: string): Prisma.AssistanceIssueWhereInput[] {
   return filters;
 }
 
+const DAY_MS = 86_400_000;
+const OFFSET_MS = AGENT_TIMEZONE_OFFSET_HOURS * 3_600_000;
+
 function startOfToday(): Date {
-  const offsetMs = AGENT_TIMEZONE_OFFSET_HOURS * 3_600_000;
-  const local = new Date(Date.now() + offsetMs);
+  const local = new Date(Date.now() + OFFSET_MS);
   local.setUTCHours(0, 0, 0, 0);
-  return new Date(local.getTime() - offsetMs);
+  return new Date(local.getTime() - OFFSET_MS);
 }
+
+// YYYY-MM-DD of a moment in Lagos time.
+const lagosDate = (moment: Date): string =>
+  new Date(moment.getTime() + OFFSET_MS).toISOString().slice(0, 10);

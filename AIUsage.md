@@ -14,7 +14,7 @@ Serves `ladder-web` and `ladder-assistance` (partner account opening, §5 "Assis
 |---|---|
 | Runtime / language | Node.js 22 LTS, TypeScript (`strict`) |
 | Framework | NestJS |
-| Database / ORM | PostgreSQL on Supabase (schema `public`) + Prisma. `DATABASE_URL` = pooled (app), `DIRECT_URL` = direct (migrations) |
+| Database / ORM | PostgreSQL on Supabase (schema `public`) + Prisma. `DATABASE_URL` = session pooler, port 5432, `connection_limit=5` (app; a long-running server, so not the transaction pooler), `DIRECT_URL` = session pooler (migrations) |
 | Validation | `class-validator` DTOs + global `ValidationPipe` |
 | Auth | Opaque session token in an httpOnly, SameSite cookie (Secure in production); only its SHA-256 hash is stored |
 | Email | Brevo transactional API; the sender is `EMAIL_FROM` (an address verified in Brevo) |
@@ -153,6 +153,7 @@ The browser signs in with `firebaseToken` (uid `help_<chatId>`) and reads `helpC
 | Method | Path | Body | Returns |
 |---|---|---|---|
 | GET | `/agent/me` | – | `{ fullName, role }` |
+| GET | `/agent/insights` | – | `{ days: [{ date, logged, resolved }] (last AGENT_INSIGHT_DAYS Lagos days, oldest first), issues: [{ title, count }] (logged in those days, most first) }` |
 | GET | `/agent/cases/summary` | – | `{ inProgress (OPEN + IN_CHAT), needsAttention, resolvedToday (Lagos day), total }` |
 | GET | `/agent/cases` | query `search?`, `status?` (a status or `IN_PROGRESS`), `page` | `{ items, page, pageSize: 8, total }`. Search: reference, last digits of the ID, WhatsApp number |
 | GET | `/agent/cases/:ref` | – | case + `stages`, `guidance`, `officeVisits`, `chat` (Firestore transcript, or null), `notes`. `404 CASE_NOT_FOUND` |
