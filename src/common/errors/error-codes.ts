@@ -3,7 +3,7 @@ import { HttpStatus } from '@nestjs/common';
 // Every error the API can return. `message` is shown to users, so keep it plain and safe.
 export const ERROR_CODES = {
   VALIDATION_FAILED: { status: HttpStatus.BAD_REQUEST, message: 'Some fields are invalid.' },
-  // UNAUTHENTICATED: { status: HttpStatus.UNAUTHORIZED, message: 'Please sign in to continue.' },
+  UNAUTHENTICATED: { status: HttpStatus.UNAUTHORIZED, message: 'Please sign in to continue.' },
   FORBIDDEN: { status: HttpStatus.FORBIDDEN, message: 'You cannot perform this action.' },
   NOT_FOUND: { status: HttpStatus.NOT_FOUND, message: 'Resource not found.' },
   RATE_LIMITED: {
