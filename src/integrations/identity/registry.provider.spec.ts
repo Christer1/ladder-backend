@@ -60,14 +60,13 @@ describe('RegistryIdentityProvider', () => {
 
   it('returns the person behind a verified record', async () => {
     records.findById.mockResolvedValue(
-      record({ firstName: 'Ada', lastName: 'Okafor', phoneNumber: '08012345678', town: 'Ikeja' }),
+      record({ firstName: 'Ada', lastName: 'Okafor', phoneNumber: '08012345678' }),
     );
     await expect(provider.getPerson('rec-1')).resolves.toMatchObject({
       firstName: 'Ada',
       lastName: 'Okafor',
       dateOfBirth: '1990-05-17',
       phoneNumber: '08012345678',
-      town: 'Ikeja',
     });
   });
 

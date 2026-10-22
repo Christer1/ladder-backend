@@ -15,12 +15,7 @@ const DOB = '1991-03-09';
 const profile = {
   firstName: 'Kelechi',
   lastName: 'Eze',
-  gender: 'Male',
   phoneNumber: '08031234567',
-  email: 'kelechi.eze@example.com',
-  stateOfOrigin: 'Enugu',
-  stateOfResidence: 'Lagos',
-  town: 'Yaba',
   residentialAddress: '4, Herbert Macaulay Way, Yaba',
 };
 const BVN = '22800000001';
@@ -158,10 +153,10 @@ describe('Assistance flow (e2e)', () => {
       dateOfBirth: DOB,
       gender: 'Male',
       phoneNumber: '08031234567',
-      email: 'kelechi.eze@example.com',
-      stateOfOrigin: 'Enugu',
-      stateOfResidence: 'Lagos',
-      town: 'Yaba',
+      email: 'customer@example.com',
+      stateOfOrigin: 'Oyo',
+      stateOfResidence: 'Oyo',
+      town: 'Ibadan',
       residentialAddress: '4, Herbert Macaulay Way, Yaba',
     });
 

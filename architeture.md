@@ -127,7 +127,7 @@ Rules: password ≥ 8 chars with a letter and a number. Login needs a verified e
 | POST | `/assistance/identify/ladder-id` | `{ ladderId }` (6–32 letters, digits, dashes; any case) | same. `422 LADDER_ID_NOT_FOUND` |
 | POST | `/assistance/liveness` | multipart file `selfie` | `{ status }` (placeholder, like `/verification/liveness`) |
 | GET | `/assistance/status` | – | `{ method, identity, liveness }` |
-| GET | `/assistance/details` | – | `{ fullName, dateOfBirth, gender, phoneNumber, email, stateOfOrigin, stateOfResidence, town, residentialAddress }`. `403 LIVENESS_REQUIRED` before liveness |
+| GET | `/assistance/details` | – | `{ fullName, dateOfBirth, gender, phoneNumber, email, stateOfOrigin, stateOfResidence, town, residentialAddress }`. Name, date of birth, phone and address come from the BVN/NIN record; gender, email (except a Ladder user's account email), states and town are fixed placeholders for now. `403 LIVENESS_REQUIRED` before liveness |
 | POST | `/assistance/confirm` | `{ residentialAddress? }` (only when none on file) | `{}` |
 | POST | `/assistance/session/end` | – | clears cookie |
 
@@ -152,7 +152,7 @@ Starting models:
 | `Otp` | `email`, `codeHash`, `purpose` (`SIGNUP`), `expiresAt`, `attempts`, `consumedAt?` |
 | `Verification` | `userId`, `type` (`BVN`/`NIN`/`GOVERNMENT_ID`/`LIVENESS`), `status` (`PENDING`/`VERIFIED`/`FAILED`), `valueEncrypted?`, `last4?`, `documentType?` (Government ID type), `provider`, `providerRef?` (liveness: the challenges), `failureReason?` (`NOT_FOUND`/`INVALID`/`DOB_MISMATCH`), `verifiedAt?`. Unique on `(userId, type)` |
 | `Session` | `userId`, `tokenHash`, `expiresAt`, `revokedAt?` |
-| `IdentityRecord` | Mock registry: `type`, `number` (unique per type), `dateOfBirth`, `firstName`, `lastName`, `isValid`, plus optional profile shown by assistance: `gender`, `phoneNumber`, `email`, `stateOfOrigin`, `stateOfResidence`, `town`, `residentialAddress`. The seed adds 6 people with both a BVN and a NIN (same name and date of birth) |
+| `IdentityRecord` | Mock registry: `type`, `number` (unique per type), `dateOfBirth`, `firstName`, `lastName`, `isValid`, plus optional `phoneNumber` and `residentialAddress` shown by assistance. The seed adds 6 people with both a BVN and a NIN (same name and date of birth) |
 | `AssistanceSession` | `tokenHash`, `partnerId`, `method` (`BVN`/`NIN`/`BVN_AND_NIN`/`LADDER_ID`), `providerRef`, `userId?` (Ladder ID), `livenessVerifiedAt?`, `confirmedAt?`, `expiresAt`, `revokedAt?` |
 
 ## 7. Naming

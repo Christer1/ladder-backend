@@ -126,13 +126,8 @@ model IdentityRecord {
   firstName          String           @map("first_name")
   lastName           String           @map("last_name")
   isValid            Boolean          @map("is_valid")
-  // Profile returned to partners after liveness (ladder-assistance "Your details").
-  gender             String?
+  // Shown to partners after liveness (ladder-assistance "Your details").
   phoneNumber        String?          @map("phone_number")
-  email              String?
-  stateOfOrigin      String?          @map("state_of_origin")
-  stateOfResidence   String?          @map("state_of_residence")
-  town               String?
   residentialAddress String?          @map("residential_address")
   createdAt          DateTime         @default(now()) @map("created_at")
   updatedAt          DateTime         @updatedAt @map("updated_at")

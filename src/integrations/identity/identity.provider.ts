@@ -14,12 +14,7 @@ export interface IdentityPerson {
   firstName: string;
   lastName: string;
   dateOfBirth: string; // YYYY-MM-DD
-  gender: string | null;
   phoneNumber: string | null;
-  email: string | null;
-  stateOfOrigin: string | null;
-  stateOfResidence: string | null;
-  town: string | null;
   residentialAddress: string | null;
 }
 
