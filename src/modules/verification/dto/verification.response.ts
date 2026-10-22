@@ -1,4 +1,4 @@
-import { VerificationStatus } from '@prisma/client';
+import { OnboardingStep, VerificationStatus } from '@prisma/client';
 
 export type StepStatus = VerificationStatus | 'NOT_STARTED';
 
@@ -10,5 +10,9 @@ export interface VerificationResultResponse {
 export interface VerificationStatusResponse {
   bvn: StepStatus;
   nin: StepStatus;
+  governmentId: StepStatus;
+  liveness: StepStatus;
   ladderId: string | null;
+  /** The onboarding page the user was last on (null until they open one). */
+  lastStep: OnboardingStep | null;
 }

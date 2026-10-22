@@ -4,7 +4,7 @@ Read this before writing code in `ladder-backend`. If a rule changes, update thi
 
 ## 1. What it does
 
-Serves `ladder-web`. A user signs up (email + password), verifies their email with an OTP, sets a 6-digit PIN, verifies a BVN or NIN together with their date of birth, and receives a reusable **Ladder ID** (e.g. `LID-7F3A-9K2D`). Government ID upload and liveness (selfie) are **out of scope**. The API contract is in `../ladder-web/SCOPE_AND_RULES.md` §8. Keep the two in sync.
+Serves `ladder-web`. A user signs up (email + password + confirm password), verifies their email with an OTP, verifies their identity with a BVN or NIN (plus date of birth) **or** a Government ID, completes a liveness check, and receives a reusable **Ladder ID** (e.g. `LID-7F3A-9K2D`). There is no PIN: users sign in with email and password. Government ID and liveness are recorded by the backend but are **placeholders**: uploaded files are checked (sides, type, size) and then discarded; no document storage, review or liveness provider exists yet. The API contract is in `../ladder-web/rules.md` §8. Keep the two in sync.
 
 ## 2. Stack
 
@@ -47,8 +47,8 @@ ladder-backend/
 │   │   ├── identity/          identity.provider.ts (interface), registry.provider.ts (seeded table), mock.provider.ts
 │   │   └── mail/              mail.service.ts (Brevo), templates/
 │   └── modules/               One folder per domain
-│       ├── auth/              signup, login, OTP, PIN, session
-│       ├── verification/      BVN, NIN, status
+│       ├── auth/              signup, login, OTP, logout, session cookie
+│       ├── verification/      BVN, NIN, Government ID, liveness, status
 │       └── users/             profile (/profile/me)
 └── test/                      e2e tests (*.e2e-spec.ts)
 ```
@@ -97,18 +97,24 @@ Endpoints:
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| POST | `/auth/signup` | `{ email, password }` | `{ otpExpiresIn, resendAvailableIn }` |
+| POST | `/auth/signup` | `{ email, password, confirmPassword }` | `{ otpExpiresIn, resendAvailableIn }`. `400 PASSWORD_MISMATCH` (field `confirmPassword`) |
 | POST | `/auth/otp/resend` | `{ email }` | same as signup |
 | POST | `/auth/otp/verify` | `{ email, code }` | sets session cookie |
-| POST | `/auth/login` | `{ email, password }` | sets session cookie |
-| POST | `/auth/pin` | `{ pin, confirmPin }` | `{}` |
+| POST | `/auth/login` | `{ email, password }` | sets session cookie. `401 INVALID_CREDENTIALS`, `403 EMAIL_NOT_VERIFIED` |
 | POST | `/auth/logout` | – | clears cookie |
 | POST | `/verification/bvn` | `{ bvn, dateOfBirth }` | `{ status, ladderId }` |
 | POST | `/verification/nin` | `{ nin, dateOfBirth }` | `{ status, ladderId }` |
-| GET | `/verification/status` | – | `{ bvn, nin, ladderId }` (`NOT_STARTED`/`PENDING`/`VERIFIED`/`FAILED`) |
+| POST | `/verification/government-id` | multipart: `idType` + files `front`, `back` (back required except `international-passport`) | `{ status, ladderId }`. `FILE_REQUIRED` / `FILE_TYPE_INVALID` (field per side), `413 FILE_TOO_LARGE` |
+| POST | `/verification/liveness` | multipart: file `selfie` (JPG/PNG) + `challenges` (JSON array) | `{ status, ladderId }`. `409 IDENTITY_REQUIRED` until a BVN, NIN or Government ID is verified. Issues the Ladder ID if none yet |
+| PUT | `/verification/last-step` | `{ step }` = `CREDENTIALS` / `UPLOAD_ID` / `LIVENESS` | `{}`. Remembers the onboarding page the user is on |
+| GET | `/verification/status` | – | `{ bvn, nin, governmentId, liveness, ladderId, lastStep }` (`NOT_STARTED`/`PENDING`/`VERIFIED`/`FAILED`; `lastStep` or `null`). The client resumes onboarding from this |
 | GET | `/profile/me` | – | profile with masked numbers |
 
-Rules: password ≥ 8 chars with a letter and a number. Login needs a verified email. BVN/NIN need the PIN first. `dateOfBirth` is `YYYY-MM-DD` and must match the registry record; after the first verified credential, the second must use the same date. The first verified BVN **or** NIN issues the Ladder ID.
+Rules: password ≥ 8 chars with a letter and a number. Login needs a verified email.
+
+**Signing in and resuming.** Users sign in with email + password (`POST /auth/login`); unverified emails get `EMAIL_NOT_VERIFIED` and finish OTP first. Every step's progress lives here, so `GET /verification/status` is the single source the client uses to send a returning user back, on any device: a user **with a Ladder ID goes to their profile**; otherwise to `lastStep` (the page they were on, saved with `PUT /verification/last-step`) or the first step left. `dateOfBirth` is `YYYY-MM-DD` and must match the registry record; after the first verified credential, the second must use the same date. The first verified BVN **or** NIN issues the Ladder ID; for a Government ID, liveness issues it. All `/auth` routes have the strict limit (5/min per route and client).
+
+**Uploads (placeholder).** Multer in memory, max 5 MB per file (`UPLOAD_MAX_BYTES`). ID files: PNG/JPG/PDF; selfie: JPG/PNG. Files are validated, then dropped: never written to disk, the database or logs. Replace with a document store + review/provider before production.
 
 BVN/NIN errors (`422`): `BVN_NOT_FOUND`, `BVN_INVALID`, `BVN_DOB_MISMATCH` (and the `NIN_` equivalents). Brevo failure: `502 EMAIL_SEND_FAILED`.
 
@@ -117,7 +123,7 @@ BVN/NIN errors (`422`): `BVN_NOT_FOUND`, `BVN_INVALID`, `BVN_DOB_MISMATCH` (and 
 - Table/model names are singular PascalCase in Prisma (`User`), mapped to snake_case plural in SQL (`@@map("users")`). Columns camelCase in code, snake_case in DB (`@map`).
 - Every model has `id String @id @default(uuid())`, `createdAt`, `updatedAt`.
 - Statuses are Prisma enums, never free strings.
-- Secrets are **hashed** (password, PIN, OTP: argon2). Identity numbers are **encrypted** (AES-256-GCM) and stored with a `last4` column for display.
+- Secrets are **hashed** (password, OTP: argon2). Identity numbers are **encrypted** (AES-256-GCM) and stored with a `last4` column for display.
 - Every table has Row Level Security enabled with no policies, so Supabase's REST API cannot read it. The backend connects as the owner.
 - Schema changes only via `prisma migrate`; never edit an applied migration.
 
@@ -125,9 +131,9 @@ Starting models:
 
 | Model | Key fields |
 |---|---|
-| `User` | `email` (unique), `passwordHash`, `pinHash?`, `dateOfBirth?` (from the first verified credential), `emailVerifiedAt?`, `ladderId?` (unique), `status` (`PENDING`/`VERIFIED`/`SUSPENDED`) |
+| `User` | `email` (unique), `passwordHash`, `lastOnboardingStep?` (`CREDENTIALS`/`UPLOAD_ID`/`LIVENESS`), `dateOfBirth?` (from the first verified credential), `emailVerifiedAt?`, `ladderId?` (unique), `status` (`PENDING`/`VERIFIED`/`SUSPENDED`) |
 | `Otp` | `email`, `codeHash`, `purpose` (`SIGNUP`), `expiresAt`, `attempts`, `consumedAt?` |
-| `Verification` | `userId`, `type` (`BVN`/`NIN`), `status` (`PENDING`/`VERIFIED`/`FAILED`), `valueEncrypted?`, `last4?`, `provider`, `providerRef?`, `failureReason?` (`NOT_FOUND`/`INVALID`/`DOB_MISMATCH`), `verifiedAt?`. Unique on `(userId, type)` |
+| `Verification` | `userId`, `type` (`BVN`/`NIN`/`GOVERNMENT_ID`/`LIVENESS`), `status` (`PENDING`/`VERIFIED`/`FAILED`), `valueEncrypted?`, `last4?`, `documentType?` (Government ID type), `provider`, `providerRef?` (liveness: the challenges), `failureReason?` (`NOT_FOUND`/`INVALID`/`DOB_MISMATCH`), `verifiedAt?`. Unique on `(userId, type)` |
 | `Session` | `userId`, `tokenHash`, `expiresAt`, `revokedAt?` |
 | `IdentityRecord` | Mock registry: `type`, `number` (unique per type), `dateOfBirth`, `firstName`, `lastName`, `isValid` |
 
@@ -143,7 +149,7 @@ Starting models:
 
 ## 8. Security (non-negotiable)
 
-- Never log passwords, PINs, OTPs, BVNs or NINs. Mask identity numbers in responses (`*******8901`).
+- Never log passwords, OTPs, BVNs, NINs, ID images or selfies. Mask identity numbers in responses (`*******8901`).
 - Rate-limit all `/auth` endpoints. Lock OTP after 5 wrong attempts.
 - Tests never send real email: unit tests stub `fetch`, e2e tests replace `MailService`, and e2e runs on the local `ladder_test` database only.
 - Secrets come from env only; `.env` is never committed (`.env.example` is).

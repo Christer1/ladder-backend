@@ -10,7 +10,12 @@ import { VerificationService } from './verification.service';
 const KEY = randomBytes(32).toString('base64');
 const DOB = '1990-05-17';
 
-const readyUser = { id: 'user-1', pinHash: 'hash', dateOfBirth: null, ladderId: null } as User;
+const readyUser = {
+  id: 'user-1',
+  dateOfBirth: null,
+  ladderId: null,
+  lastOnboardingStep: null,
+} as User;
 
 const verification = (type: VerificationType, status: VerificationStatus): Verification =>
   ({ id: `v-${type}`, type, status }) as Verification;
@@ -33,6 +38,7 @@ describe('VerificationService', () => {
     } as unknown as jest.Mocked<VerificationRepository>;
     users = {
       findById: jest.fn().mockResolvedValue(readyUser),
+      setLastOnboardingStep: jest.fn(),
       completeVerification: jest
         .fn()
         .mockResolvedValue({ ...readyUser, ladderId: 'LID-ABCD-EFGH' }),
@@ -94,11 +100,6 @@ describe('VerificationService', () => {
     expect(provider.verifyNin).not.toHaveBeenCalled();
   });
 
-  it('requires a PIN before verification', async () => {
-    users.findById.mockResolvedValue({ ...readyUser, pinHash: null });
-    await expectCode(service.verifyBvn('user-1', '22345678901', DOB), 'PIN_REQUIRED');
-  });
-
   it('rejects re-verifying a verified credential', async () => {
     repo.findOne.mockResolvedValue(verification('BVN', 'VERIFIED'));
     await expectCode(service.verifyBvn('user-1', '22345678901', DOB), 'ALREADY_VERIFIED');
@@ -110,7 +111,90 @@ describe('VerificationService', () => {
     await expect(service.getStatus('user-1')).resolves.toEqual({
       bvn: 'VERIFIED',
       nin: 'NOT_STARTED',
+      governmentId: 'NOT_STARTED',
+      liveness: 'NOT_STARTED',
       ladderId: null,
+      lastStep: null,
+    });
+  });
+
+  it('reports and saves the last onboarding step', async () => {
+    users.findById.mockResolvedValue({ ...readyUser, lastOnboardingStep: 'UPLOAD_ID' });
+    await expect(service.getStatus('user-1')).resolves.toHaveProperty('lastStep', 'UPLOAD_ID');
+
+    await service.saveLastStep('user-1', 'LIVENESS');
+    expect(users.setLastOnboardingStep).toHaveBeenCalledWith('user-1', 'LIVENESS');
+  });
+
+  describe('uploadGovernmentId', () => {
+    const png = { mimetype: 'image/png', size: 1000 };
+
+    it('records a card with front and back as verified, keeping the document type', async () => {
+      await expect(
+        service.uploadGovernmentId('user-1', 'drivers-licence', { front: png, back: png }),
+      ).resolves.toEqual({ status: 'VERIFIED', ladderId: null });
+
+      expect(repo.upsert).toHaveBeenCalledWith(
+        'user-1',
+        'GOVERNMENT_ID',
+        expect.objectContaining({ status: 'VERIFIED', documentType: 'drivers-licence' }),
+      );
+    });
+
+    it('needs only the photo page for a passport', async () => {
+      await expect(
+        service.uploadGovernmentId('user-1', 'international-passport', { front: png }),
+      ).resolves.toHaveProperty('status', 'VERIFIED');
+    });
+
+    it('names the missing side for a card', async () => {
+      const promise = service.uploadGovernmentId('user-1', 'national-id-card', { front: png });
+      await expectCode(promise, 'FILE_REQUIRED');
+      await expect(promise).rejects.toMatchObject({ fieldErrors: { back: [expect.any(String)] } });
+      expect(repo.upsert).not.toHaveBeenCalled();
+    });
+
+    it('rejects unsupported file types per side', async () => {
+      const gif = { mimetype: 'image/gif', size: 1000 };
+      const promise = service.uploadGovernmentId('user-1', 'voters-card', {
+        front: png,
+        back: gif,
+      });
+      await expectCode(promise, 'FILE_TYPE_INVALID');
+      await expect(promise).rejects.toMatchObject({ fieldErrors: { back: [expect.any(String)] } });
+    });
+  });
+
+  describe('submitLiveness', () => {
+    const jpeg = { mimetype: 'image/jpeg', size: 1000 };
+
+    it('needs a verified BVN, NIN or Government ID first', async () => {
+      repo.findAllByUser.mockResolvedValue([verification('BVN', 'FAILED')]);
+      await expectCode(service.submitLiveness('user-1', jpeg), 'IDENTITY_REQUIRED');
+      expect(repo.upsert).not.toHaveBeenCalled();
+    });
+
+    it('records liveness with the challenges and issues the Ladder ID if missing', async () => {
+      repo.findAllByUser.mockResolvedValue([verification('GOVERNMENT_ID', 'VERIFIED')]);
+
+      await expect(
+        service.submitLiveness('user-1', jpeg, ['smile', 'turnLeft', 'blink']),
+      ).resolves.toEqual({ status: 'VERIFIED', ladderId: 'LID-ABCD-EFGH' });
+
+      expect(repo.upsert).toHaveBeenCalledWith(
+        'user-1',
+        'LIVENESS',
+        expect.objectContaining({ status: 'VERIFIED', providerRef: 'smile,turnLeft,blink' }),
+      );
+      expect(users.completeVerification).toHaveBeenCalledWith('user-1', null);
+    });
+
+    it('requires a JPG or PNG selfie', async () => {
+      await expectCode(service.submitLiveness('user-1', undefined), 'FILE_REQUIRED');
+      await expectCode(
+        service.submitLiveness('user-1', { mimetype: 'application/pdf', size: 10 }),
+        'FILE_TYPE_INVALID',
+      );
     });
   });
 });

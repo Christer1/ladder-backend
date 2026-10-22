@@ -11,4 +11,9 @@ export class SignupDto {
   @MaxLength(128, { message: 'Password must be at most 128 characters.' })
   @Matches(/(?=.*[A-Za-z])(?=.*\d)/, { message: 'Password must contain a letter and a number.' })
   password: string;
+
+  // Checked against `password` in AuthService.signup (PASSWORD_MISMATCH).
+  @IsString()
+  @MaxLength(128)
+  confirmPassword: string;
 }

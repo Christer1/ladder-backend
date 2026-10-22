@@ -11,10 +11,10 @@ const user = (overrides: Partial<User> = {}): User => ({
   id: 'user-1',
   email: 'ada@example.com',
   passwordHash: '',
-  pinHash: null,
   dateOfBirth: null,
   emailVerifiedAt: null,
   ladderId: null,
+  lastOnboardingStep: null,
   status: 'PENDING',
   createdAt: new Date(),
   updatedAt: new Date(),
@@ -60,7 +60,6 @@ describe('AuthService', () => {
       findByEmail: jest.fn(),
       findById: jest.fn(),
       markEmailVerified: jest.fn(),
-      setPinHash: jest.fn(),
     } as unknown as jest.Mocked<UsersService>;
     mail = { sendOtp: jest.fn() } as unknown as jest.Mocked<MailService>;
     const config = { get: jest.fn().mockReturnValue(24) } as unknown as ConfigService;
@@ -72,7 +71,11 @@ describe('AuthService', () => {
     it('stores a hashed password and emails a 6-digit code', async () => {
       users.createPending.mockResolvedValue(user());
 
-      const result = await service.signup({ email: 'ada@example.com', password: 'secret123' });
+      const result = await service.signup({
+        email: 'ada@example.com',
+        password: 'secret123',
+        confirmPassword: 'secret123',
+      });
 
       const [, passwordHash] = users.createPending.mock.calls[0];
       expect(passwordHash).not.toContain('secret123');
@@ -84,6 +87,18 @@ describe('AuthService', () => {
         expect.any(Number),
       );
     });
+  });
+
+  it('rejects signup when the passwords do not match', async () => {
+    await expectCode(
+      service.signup({
+        email: 'ada@example.com',
+        password: 'secret123',
+        confirmPassword: 'secret124',
+      }),
+      'PASSWORD_MISMATCH',
+    );
+    expect(users.createPending).not.toHaveBeenCalled();
   });
 
   describe('login', () => {
@@ -189,32 +204,6 @@ describe('AuthService', () => {
         'otpExpiresIn',
       );
       expect(mail.sendOtp).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('createPin', () => {
-    it('hashes and stores the PIN', async () => {
-      users.findById.mockResolvedValue(user());
-
-      await service.createPin('user-1', { pin: '123456', confirmPin: '123456' });
-
-      const [, pinHash] = users.setPinHash.mock.calls[0];
-      expect(pinHash).not.toContain('123456');
-    });
-
-    it('rejects mismatched PINs', async () => {
-      await expectCode(
-        service.createPin('user-1', { pin: '123456', confirmPin: '654321' }),
-        'PIN_MISMATCH',
-      );
-    });
-
-    it('rejects setting a PIN twice', async () => {
-      users.findById.mockResolvedValue(user({ pinHash: 'hash' }));
-      await expectCode(
-        service.createPin('user-1', { pin: '123456', confirmPin: '123456' }),
-        'PIN_ALREADY_SET',
-      );
     });
   });
 

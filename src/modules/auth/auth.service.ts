@@ -21,7 +21,6 @@ import { MailService } from '../../integrations/mail/mail.service';
 import { UsersService } from '../users/users.service';
 import { AuthRepository } from './auth.repository';
 import { OtpSentResponse, SessionResponse } from './dto/auth.response';
-import { CreatePinDto } from './dto/create-pin.dto';
 import { LoginDto } from './dto/login.dto';
 import { ResendOtpDto } from './dto/resend-otp.dto';
 import { SignupDto } from './dto/signup.dto';
@@ -39,6 +38,9 @@ export class AuthService {
   private readonly dummyHash = hashSecret('ladder-dummy-password');
 
   async signup(dto: SignupDto): Promise<OtpSentResponse> {
+    if (dto.password !== dto.confirmPassword) {
+      throw new AppError('PASSWORD_MISMATCH', { confirmPassword: ['Passwords do not match.'] });
+    }
     await this.usersService.createPending(dto.email, await hashSecret(dto.password));
     return this.issueOtp(dto.email);
   }
@@ -80,17 +82,6 @@ export class AuthService {
     await this.authRepository.consumeOtp(otp.id);
     await this.usersService.markEmailVerified(user.id);
     return this.createSession(user.id);
-  }
-
-  async createPin(userId: string, dto: CreatePinDto): Promise<void> {
-    if (dto.pin !== dto.confirmPin) {
-      throw new AppError('PIN_MISMATCH', { confirmPin: ['PINs do not match.'] });
-    }
-
-    const user = await this.usersService.findById(userId);
-    if (user.pinHash) throw new AppError('PIN_ALREADY_SET');
-
-    await this.usersService.setPinHash(userId, await hashSecret(dto.pin));
   }
 
   async validateSession(token: string): Promise<AuthUser> {

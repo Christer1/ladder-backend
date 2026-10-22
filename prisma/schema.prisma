@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
@@ -14,6 +14,13 @@ enum UserStatus {
   SUSPENDED
 }
 
+// The onboarding page a user was last on, so signing back in returns them there.
+enum OnboardingStep {
+  CREDENTIALS
+  UPLOAD_ID
+  LIVENESS
+}
+
 enum OtpPurpose {
   SIGNUP
 }
@@ -21,6 +28,8 @@ enum OtpPurpose {
 enum VerificationType {
   BVN
   NIN
+  GOVERNMENT_ID
+  LIVENESS
 }
 
 enum VerificationStatus {
@@ -30,16 +39,16 @@ enum VerificationStatus {
 }
 
 model User {
-  id              String     @id @default(uuid())
-  email           String     @unique
-  passwordHash    String     @map("password_hash")
-  pinHash         String?    @map("pin_hash")
-  dateOfBirth     DateTime?  @map("date_of_birth") @db.Date
-  emailVerifiedAt DateTime?  @map("email_verified_at")
-  ladderId        String?    @unique @map("ladder_id")
-  status          UserStatus @default(PENDING)
-  createdAt       DateTime   @default(now()) @map("created_at")
-  updatedAt       DateTime   @updatedAt @map("updated_at")
+  id                 String          @id @default(uuid())
+  email              String          @unique
+  passwordHash       String          @map("password_hash")
+  dateOfBirth        DateTime?       @map("date_of_birth") @db.Date
+  emailVerifiedAt    DateTime?       @map("email_verified_at")
+  ladderId           String?         @unique @map("ladder_id")
+  lastOnboardingStep OnboardingStep? @map("last_onboarding_step")
+  status             UserStatus      @default(PENDING)
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
 
   verifications Verification[]
   sessions      Session[]
@@ -69,6 +78,8 @@ model Verification {
   status         VerificationStatus @default(PENDING)
   valueEncrypted String?            @map("value_encrypted")
   last4          String?
+  // GOVERNMENT_ID only: which document was uploaded, e.g. "drivers-licence".
+  documentType   String?            @map("document_type")
   provider       String
   providerRef    String?            @map("provider_ref")
   failureReason  String?            @map("failure_reason")

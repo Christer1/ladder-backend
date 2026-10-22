@@ -3,7 +3,7 @@ import { UsersRepository } from './users.repository';
 import { UsersService } from './users.service';
 
 const user = (overrides: Partial<User> = {}): User =>
-  ({ id: 'user-1', email: 'ada@example.com', pinHash: null, ladderId: null, ...overrides }) as User;
+  ({ id: 'user-1', email: 'ada@example.com', ladderId: null, ...overrides }) as User;
 
 describe('UsersService', () => {
   let repo: jest.Mocked<UsersRepository>;
@@ -40,6 +40,28 @@ describe('UsersService', () => {
       'user-1',
       expect.objectContaining({ dateOfBirth: new Date('1990-05-17'), status: 'VERIFIED' }),
     );
+  });
+
+  it('issues a Ladder ID without a date of birth (Government ID path)', async () => {
+    repo.findById.mockResolvedValue(user());
+    repo.update.mockImplementation(async (_id, data) =>
+      user({ ladderId: data.ladderId as string }),
+    );
+
+    await service.completeVerification('user-1', null);
+
+    const data = repo.update.mock.calls[0][1];
+    expect(data).not.toHaveProperty('dateOfBirth');
+    expect(data).toMatchObject({ status: 'VERIFIED' });
+  });
+
+  it('keeps an existing Ladder ID', async () => {
+    repo.findById.mockResolvedValue(user({ ladderId: 'LID-AAAA-BBBB' }));
+    await expect(service.completeVerification('user-1', null)).resolves.toHaveProperty(
+      'ladderId',
+      'LID-AAAA-BBBB',
+    );
+    expect(repo.update).not.toHaveBeenCalled();
   });
 
   it('retries when a generated Ladder ID already exists', async () => {
