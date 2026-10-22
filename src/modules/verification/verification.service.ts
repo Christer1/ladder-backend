@@ -58,8 +58,11 @@ export class VerificationService {
   }
 
   async getStatus(userId: string): Promise<VerificationStatusResponse> {
-    const user = await this.usersService.findById(userId);
-    const verifications = await this.verificationRepository.findAllByUser(userId);
+    // Independent reads run together: each database round trip is the slow part of a request.
+    const [user, verifications] = await Promise.all([
+      this.usersService.findById(userId),
+      this.verificationRepository.findAllByUser(userId),
+    ]);
     const statusOf = (type: VerificationType): StepStatus =>
       verifications.find((v) => v.type === type)?.status ?? 'NOT_STARTED';
 
@@ -99,10 +102,8 @@ export class VerificationService {
     if (Object.keys(missing).length) throw new AppError('FILE_REQUIRED', missing);
     if (Object.keys(wrongType).length) throw new AppError('FILE_TYPE_INVALID', wrongType);
 
-    const verification = await this.verificationRepository.upsert(
-      userId,
-      VerificationType.GOVERNMENT_ID,
-      {
+    const [verification, user] = await Promise.all([
+      this.verificationRepository.upsert(userId, VerificationType.GOVERNMENT_ID, {
         status: VerificationStatus.VERIFIED,
         provider: 'placeholder',
         documentType: idType,
@@ -111,9 +112,9 @@ export class VerificationService {
         last4: null,
         providerRef: null,
         failureReason: null,
-      },
-    );
-    const user = await this.usersService.findById(userId);
+      }),
+      this.usersService.findById(userId),
+    ]);
     return { status: verification.status, ladderId: user.ladderId };
   }
 
@@ -130,7 +131,10 @@ export class VerificationService {
       throw new AppError('FILE_TYPE_INVALID', { selfie: ['The photo must be a JPG or PNG.'] });
     }
 
-    const verifications = await this.verificationRepository.findAllByUser(userId);
+    const [verifications, user] = await Promise.all([
+      this.verificationRepository.findAllByUser(userId),
+      this.usersService.findById(userId),
+    ]);
     const isVerified = (type: VerificationType) =>
       verifications.some((v) => v.type === type && v.status === VerificationStatus.VERIFIED);
     const hasIdentity =
@@ -153,8 +157,8 @@ export class VerificationService {
         failureReason: null,
       },
     );
-    const user = await this.usersService.completeVerification(userId, null);
-    return { status: verification.status, ladderId: user.ladderId };
+    const verifiedUser = await this.usersService.completeVerification(userId, null, user);
+    return { status: verification.status, ladderId: verifiedUser.ladderId };
   }
 
   // Every attempt is recorded (number encrypted); the first match issues the Ladder ID.
@@ -164,8 +168,10 @@ export class VerificationService {
     number: string,
     dateOfBirth: string,
   ): Promise<VerificationResultResponse> {
-    await this.assertNotVerified(userId, type);
-    const user = await this.usersService.findById(userId);
+    const [, user] = await Promise.all([
+      this.assertNotVerified(userId, type),
+      this.usersService.findById(userId),
+    ]);
     const result = this.matchesVerifiedDob(user, dateOfBirth)
       ? await this.lookup(type, number, dateOfBirth)
       : { isVerified: false, failure: 'DOB_MISMATCH' as const };
@@ -184,6 +190,7 @@ export class VerificationService {
     const verifiedUser = await this.usersService.completeVerification(
       userId,
       new Date(dateOfBirth),
+      user,
     );
     return { status: verification.status, ladderId: verifiedUser.ladderId };
   }

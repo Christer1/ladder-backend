@@ -44,8 +44,13 @@ export class UsersService {
 
   // Issues the Ladder ID once. Called after a BVN or NIN matches (with the verified date of birth)
   // and after liveness for users who verified with a Government ID instead (no date of birth).
-  async completeVerification(id: string, dateOfBirth: Date | null): Promise<User> {
-    const user = await this.findById(id);
+  // Pass `knownUser` when the caller has just loaded the user, to save a database round trip.
+  async completeVerification(
+    id: string,
+    dateOfBirth: Date | null,
+    knownUser?: User,
+  ): Promise<User> {
+    const user = knownUser ?? (await this.findById(id));
     if (user.ladderId) return user;
 
     for (let attempt = 0; attempt < LADDER_ID_MAX_TRIES; attempt++) {

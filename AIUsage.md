@@ -14,7 +14,7 @@ Serves `ladder-web` and `ladder-assistance` (partner account opening, §5 "Assis
 |---|---|
 | Runtime / language | Node.js 22 LTS, TypeScript (`strict`) |
 | Framework | NestJS |
-| Database / ORM | PostgreSQL on Supabase (schema `public`) + Prisma. `DATABASE_URL` = pooled (app), `DIRECT_URL` = direct (migrations) |
+| Database / ORM | PostgreSQL on Supabase (schema `public`) + Prisma. `DATABASE_URL` = session pooler, port 5432, `connection_limit=5` (app); `DIRECT_URL` = same host (migrations). Not the transaction pooler (6543 + `pgbouncer=true`): it made every query ~5× slower for this long-running server. Run independent queries with `Promise.all`: each round trip to the database is the slow part of a request |
 | Validation | `class-validator` DTOs + global `ValidationPipe` |
 | Auth | Opaque session token in an httpOnly, SameSite cookie (Secure in production); only its SHA-256 hash is stored |
 | Email | Brevo transactional API; the sender is `EMAIL_FROM` (an address verified in Brevo) |
@@ -134,6 +134,15 @@ Rules: password ≥ 8 chars with a letter and a number. Login needs a verified e
 | POST | `/assistance/session/end` | – | clears cookie |
 
 Rules: a wrong number, an unknown number, an invalid record and a wrong date of birth all answer `INFORMATION_MISMATCH`, so the screen can't be used to find out which numbers exist. Unknown and unverified Ladder IDs share `LADDER_ID_NOT_FOUND`. A Ladder ID qualifies when its user is `VERIFIED` with a verified BVN (else NIN); details come from that record via `IdentityProvider.getPerson(providerRef)`, with the user's account email. Identify is limited to 10/min. The session stores only the token hash and the provider ref, never identity numbers. Handing confirmed details to the partner is not built yet.
+
+**WhatsApp webhook (voice assistant).** Meta's WhatsApp Cloud API calls these; they are `@Public()` and not rate limited, and are authenticated by Meta instead. Configure with `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET` and (optional) `WHATSAPP_PHONE_NUMBER_ID`; without the first two the routes answer `503 WHATSAPP_NOT_CONFIGURED`. `main.ts` enables `rawBody` because the signature is over the exact request bytes.
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/whatsapp/webhook` | query `hub.mode=subscribe`, `hub.verify_token`, `hub.challenge` | the challenge as plain text (no envelope). `403 WHATSAPP_VERIFICATION_FAILED` |
+| POST | `/whatsapp/webhook` | Meta's payload, header `X-Hub-Signature-256` | `200` at once; messages are handled in the background. `401 WHATSAPP_SIGNATURE_INVALID` |
+
+Voice notes, audio files and text are read (`whatsapp-webhook.parser.ts`); status receipts and other types are skipped. Repeat deliveries of a message ID are ignored (in memory: one instance only). Handling is a stub that logs the message ID and type; the transcribe → reply → speak pipeline is the next step. Never log the sender's number, text or audio.
 
 BVN/NIN errors (`422`): `BVN_NOT_FOUND`, `BVN_INVALID`, `BVN_DOB_MISMATCH` (and the `NIN_` equivalents). Brevo failure: `502 EMAIL_SEND_FAILED`.
 

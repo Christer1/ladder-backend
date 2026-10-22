@@ -65,7 +65,7 @@ npm run dev              # http://localhost:4000/api/v1
 
 | Variable | What it's for |
 |---|---|
-| `DATABASE_URL` | Pooled database connection, used by the app |
+| `DATABASE_URL` | Database connection used by the app: Supabase's session pooler (port 5432) with `connection_limit=5&connect_timeout=15&pool_timeout=20`. Not the transaction pooler on port 6543, which made every query about 5× slower |
 | `DIRECT_URL` | Direct database connection, used by migrations |
 | `ENCRYPTION_KEY` | 32 random bytes, base64, used to encrypt BVNs and NINs. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` |
 | `BREVO_API_KEY` | Sends the OTP emails |

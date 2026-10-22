@@ -64,6 +64,15 @@ describe('UsersService', () => {
     expect(repo.update).not.toHaveBeenCalled();
   });
 
+  it('uses the user the caller already loaded instead of fetching it again', async () => {
+    repo.update.mockImplementation(async (_id, data) => ({ ...user(), ...data }) as never);
+
+    await service.completeVerification('user-1', null, user());
+
+    expect(repo.findById).not.toHaveBeenCalled();
+    expect(repo.update).toHaveBeenCalledTimes(1);
+  });
+
   it('retries when a generated Ladder ID already exists', async () => {
     const collision = new Prisma.PrismaClientKnownRequestError('unique', {
       code: 'P2002',

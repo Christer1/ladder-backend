@@ -61,7 +61,7 @@ describe('VerificationService', () => {
     });
 
     expect(provider.verifyBvn).toHaveBeenCalledWith('22345678901', DOB);
-    expect(users.completeVerification).toHaveBeenCalledWith('user-1', new Date(DOB));
+    expect(users.completeVerification).toHaveBeenCalledWith('user-1', new Date(DOB), readyUser);
   });
 
   it('stores the number encrypted with only the last 4 in clear', async () => {
@@ -187,7 +187,7 @@ describe('VerificationService', () => {
         'LIVENESS',
         expect.objectContaining({ status: 'VERIFIED', providerRef: 'smile,turnLeft,blink' }),
       );
-      expect(users.completeVerification).toHaveBeenCalledWith('user-1', null);
+      expect(users.completeVerification).toHaveBeenCalledWith('user-1', null, readyUser);
     });
 
     it('requires a JPG or PNG selfie', async () => {
