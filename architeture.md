@@ -18,7 +18,7 @@ Serves `ladder-web`. A user signs up (email + password), verifies their email wi
 | Email | Brevo transactional API, sender `official@bovaplay.com` |
 | Rate limiting | `@nestjs/throttler` |
 | Tests | Jest + Supertest |
-| Package manager | pnpm |
+| Package manager | npm |
 
 Server runs on port `4000`, all routes prefixed `/api/v1`.
 
@@ -28,7 +28,7 @@ Server runs on port `4000`, all routes prefixed `/api/v1`.
 ladder-backend/
 ├── prisma/
 │   ├── schema.prisma          All models
-│   ├── seed.ts                Mock BVN/NIN registry (pnpm db:seed)
+│   ├── seed.ts                Mock BVN/NIN registry (npm run db:seed)
 │   └── migrations/
 ├── src/
 │   ├── main.ts                Bootstrap + listen
@@ -161,4 +161,4 @@ Starting models:
 - [ ] Service unit tests + one e2e test per endpoint (success and main failure)
 - [ ] Migration included if the schema changed
 - [ ] Web contract (`ladder-web` §8) still matches
-- [ ] `pnpm lint`, `pnpm test`, `pnpm build` pass
+- [ ] `npm run lint`, `npm run test`, `npm run build` pass

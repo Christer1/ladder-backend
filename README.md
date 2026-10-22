@@ -5,16 +5,16 @@ NestJS + Prisma API for `ladder-web`, on Supabase Postgres with Brevo for email.
 ## Setup
 
 ```bash
-pnpm install
+npm install
 cp .env.example .env     # fill DATABASE_URL, DIRECT_URL, ENCRYPTION_KEY, BREVO_API_KEY
-pnpm prisma:deploy       # apply migrations
-pnpm db:seed             # load the mock BVN/NIN registry (prints the test data)
-pnpm start:dev           # http://localhost:4000/api/v1
+npm run prisma:deploy  # apply migrations
+npm run db:seed  # load the mock BVN/NIN registry (prints the test data)
+npm run dev  # http://localhost:4000/api/v1
 ```
 
 ## Test data (BVN / NIN)
 
-`pnpm db:seed` creates 20 BVNs and 20 NINs in the `identity_records` table (14 valid and 6 invalid of each) and prints them. The data is the same every run. Copy a number and its date of birth from the output or from Supabase:
+`npm run db:seed` creates 20 BVNs and 20 NINs in the `identity_records` table (14 valid and 6 invalid of each) and prints them. The data is the same every run. Copy a number and its date of birth from the output or from Supabase:
 
 | You send | Result |
 |---|---|
@@ -27,11 +27,11 @@ pnpm start:dev           # http://localhost:4000/api/v1
 
 | Command | What it does |
 |---|---|
-| `pnpm start:dev` | Run with reload |
-| `pnpm build` / `pnpm start` | Build and run `dist/` |
-| `pnpm test` | Unit tests (no network, no real email) |
-| `pnpm test:e2e` | End-to-end tests on the local `ladder_test` database (override with `TEST_DATABASE_URL`); email is faked |
-| `pnpm lint` / `pnpm typecheck` | Lint / type check |
-| `pnpm prisma:migrate` | Create a migration after editing `prisma/schema.prisma` (point it at a local database, not Supabase) |
-| `pnpm prisma:deploy` | Apply migrations to the database in `.env` |
-| `pnpm db:seed` | Load or refresh the mock BVN/NIN registry |
+| `npm run dev` | Run with reload |
+| `npm run build` / `npm run start` | Build and run `dist/` |
+| `npm run test` | Unit tests (no network, no real email) |
+| `npm run test:e2e` | End-to-end tests on the local `ladder_test` database (override with `TEST_DATABASE_URL`); email is faked |
+| `npm run lint` / `npm run typecheck` | Lint / type check |
+| `npm run prisma:migrate` | Create a migration after editing `prisma/schema.prisma` (point it at a local database, not Supabase) |
+| `npm run prisma:deploy` | Apply migrations to the database in `.env` |
+| `npm run db:seed` | Load or refresh the mock BVN/NIN registry |
