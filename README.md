@@ -65,8 +65,8 @@ npm run dev              # http://localhost:4000/api/v1
 
 | Variable | What it's for |
 |---|---|
-| `DATABASE_URL` | Pooled database connection, used by the app |
-| `DIRECT_URL` | Direct database connection, used by migrations |
+| `DATABASE_URL` | Database connection used by the app: Supabase's **session** pooler (port 5432) with `connection_limit=5&pool_timeout=20&connect_timeout=15` (see `.env.example`) |
+| `DIRECT_URL` | Database connection used by migrations (the session pooler, without the pool settings) |
 | `ENCRYPTION_KEY` | 32 random bytes, base64, used to encrypt BVNs and NINs. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` |
 | `BREVO_API_KEY` | Sends the OTP emails |
 | `EMAIL_FROM` | Sender address for the OTP emails. It must be a sender verified in your Brevo account |
@@ -89,7 +89,7 @@ When a customer taps **Get help** on `ladder-assistance`, a chat widget opens. I
 
 Every failed check on `ladder-assistance` is logged once per set of details and shown to agents on [`ladder-agent-dashboard`](../ladder-agent-dashboard) through the `/agent` routes ([AIUsage.md §5](AIUsage.md#5-api-rules)). **These routes have no sign-in yet**, so do not deploy them as they are. Add the dashboard's origin to `WEB_ORIGIN`.
 
-**Database connections:** with `connection_limit=1` in `DATABASE_URL`, every request waits for one connection. The dashboard polls while customers chat, so use a higher limit for a long-running server, e.g. `connection_limit=5` (Supabase's pooler supports it).
+**Database connections:** use the session pooler with `connection_limit=5`, as in `.env.example`. The transaction pooler (6543, `pgbouncer=true`) with `connection_limit=1` made every query about 4× slower (Prisma loses prepared statements there) and queued every request behind one connection, so dashboard polls timed out. Keep `connection_limit` × running instances under Supabase's session pool size (15 by default).
 
 ## Test data (BVN / NIN)
 

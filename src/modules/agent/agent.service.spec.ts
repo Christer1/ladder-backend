@@ -38,6 +38,7 @@ describe('AgentService', () => {
       listIssues: jest.fn().mockResolvedValue({ items: [issue()], total: 1 }),
       countByStatus: jest.fn().mockResolvedValue({ OPEN: 2, IN_CHAT: 1, NEEDS_ATTENTION: 3 }),
       countResolvedSince: jest.fn().mockResolvedValue(4),
+      findActivitySince: jest.fn().mockResolvedValue({ logged: [], resolved: [] }),
       findIssue: jest.fn().mockResolvedValue(issue()),
       updateStatus: jest.fn().mockResolvedValue(true),
       resolve: jest.fn().mockResolvedValue(true),
@@ -90,6 +91,40 @@ describe('AgentService', () => {
       resolvedToday: 4,
       total: 6,
     });
+  });
+
+  it('counts the last 7 Lagos days and the most common issues', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-22T23:30:00Z')); // 00:30 on the 23rd, Lagos
+    repo.findActivitySince.mockResolvedValue({
+      logged: [
+        { createdAt: new Date('2026-10-22T23:10:00Z'), reason: 'DOB_MISMATCH', failedType: 'BVN' },
+        { createdAt: new Date('2026-10-22T10:00:00Z'), reason: 'DOB_MISMATCH', failedType: 'NIN' },
+        { createdAt: new Date('2026-10-17T09:00:00Z'), reason: 'NOT_FOUND', failedType: 'NIN' },
+      ],
+      resolved: [{ resolvedAt: new Date('2026-10-22T12:00:00Z') }],
+    } as never);
+
+    const insights = await service.getInsights();
+    jest.useRealTimers();
+
+    expect(repo.findActivitySince).toHaveBeenCalledWith(new Date('2026-10-16T23:00:00Z'));
+    expect(insights.days.map((d) => d.date)).toEqual([
+      '2026-10-17',
+      '2026-10-18',
+      '2026-10-19',
+      '2026-10-20',
+      '2026-10-21',
+      '2026-10-22',
+      '2026-10-23',
+    ]);
+    expect(insights.days[0]).toEqual({ date: '2026-10-17', logged: 1, resolved: 0 });
+    expect(insights.days[5]).toEqual({ date: '2026-10-22', logged: 1, resolved: 1 });
+    // 00:10 on the 23rd in Lagos, though still the 22nd in UTC.
+    expect(insights.days[6]).toEqual({ date: '2026-10-23', logged: 1, resolved: 0 });
+    expect(insights.issues).toEqual([
+      { title: 'Date of birth mismatch', count: 2 },
+      { title: 'NIN not found', count: 1 },
+    ]);
   });
 
   it('lists where to go and what to bring for both records of a name mismatch', async () => {
