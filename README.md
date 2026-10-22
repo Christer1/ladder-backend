@@ -85,6 +85,12 @@ When a customer taps **Get help** on `ladder-assistance`, a chat widget opens. I
 2. Generate a service account key (Project settings → Service accounts), then put `base64 -i <key>.json | tr -d '\n'` in `FIREBASE_SERVICE_ACCOUNT`. Delete the JSON file afterwards and never commit it.
 3. Publish [`firestore.rules`](firestore.rules): paste it into Firestore → Rules, or run `firebase deploy --only firestore:rules`. Browsers can then read only their own chat, and only the backend writes.
 
+### Agent dashboard
+
+Every failed check on `ladder-assistance` is logged once per set of details and shown to agents on [`ladder-agent-dashboard`](../ladder-agent-dashboard) through the `/agent` routes ([AIUsage.md §5](AIUsage.md#5-api-rules)). **These routes have no sign-in yet**, so do not deploy them as they are. Add the dashboard's origin to `WEB_ORIGIN`.
+
+**Database connections:** with `connection_limit=1` in `DATABASE_URL`, every request waits for one connection. The dashboard polls while customers chat, so use a higher limit for a long-running server, e.g. `connection_limit=5` (Supabase's pooler supports it).
+
 ## Test data (BVN / NIN)
 
 `npm run db:seed` creates 20 BVNs and 20 NINs in the `identity_records` table (14 valid and 6 invalid of each) and prints them. The data is the same on every run. Copy a number and its date of birth from the output or from Supabase:

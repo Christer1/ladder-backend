@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { AssistanceIssue, DeliveryStatus, Prisma, WhatsAppMessage } from '@prisma/client';
+import {
+  AssistanceIssue,
+  AssistanceIssueStatus,
+  DeliveryStatus,
+  Prisma,
+  WhatsAppMessage,
+} from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 
 @Injectable()
@@ -12,6 +18,54 @@ export class SupportRepository {
 
   findIssueByReference(reference: string): Promise<AssistanceIssue | null> {
     return this.prisma.assistanceIssue.findUnique({ where: { reference } });
+  }
+
+  findIssueByOpenFingerprint(openFingerprint: string): Promise<AssistanceIssue | null> {
+    return this.prisma.assistanceIssue.findUnique({ where: { openFingerprint } });
+  }
+
+  // One more failed identify with the same details.
+  recordAttempt(
+    id: string,
+    data: { expiresAt: Date; status?: AssistanceIssueStatus },
+  ): Promise<AssistanceIssue> {
+    return this.prisma.assistanceIssue.update({
+      where: { id },
+      data: { ...data, attempts: { increment: 1 }, lastAttemptAt: new Date() },
+    });
+  }
+
+  releaseOpenFingerprint(id: string): Promise<AssistanceIssue> {
+    return this.prisma.assistanceIssue.update({ where: { id }, data: { openFingerprint: null } });
+  }
+
+  // Sets the status only if the issue is currently in one of `from`. False if it wasn't.
+  async updateStatus(
+    id: string,
+    status: AssistanceIssueStatus,
+    from: AssistanceIssueStatus[],
+  ): Promise<boolean> {
+    const { count } = await this.prisma.assistanceIssue.updateMany({
+      where: { id, status: { in: from } },
+      data: { status },
+    });
+    return count === 1;
+  }
+
+  async resolveByIdFingerprints(idFingerprints: string[], resolvedBy: string): Promise<number> {
+    const { count } = await this.prisma.assistanceIssue.updateMany({
+      where: {
+        idFingerprint: { in: idFingerprints },
+        status: { not: AssistanceIssueStatus.RESOLVED },
+      },
+      data: {
+        status: AssistanceIssueStatus.RESOLVED,
+        resolvedAt: new Date(),
+        resolvedBy,
+        openFingerprint: null,
+      },
+    });
+    return count;
   }
 
   // Claims an unclaimed, unexpired issue for a phone. False if someone else got there first.

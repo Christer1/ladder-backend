@@ -2,6 +2,7 @@ import {
   createCipheriv,
   createDecipheriv,
   createHash,
+  createHmac,
   randomBytes,
   randomInt,
   timingSafeEqual,
@@ -41,3 +42,8 @@ export function decrypt(payload: string, keyBase64: string): string {
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
 }
+
+// Keyed fingerprint for values that must be matched later but never stored, such as identity
+// numbers on help issues. Keyed, because an 11-digit number is easy to brute-force from a plain hash.
+export const fingerprint = (value: string, keyBase64: string): string =>
+  createHmac('sha256', Buffer.from(keyBase64, 'base64')).update(value).digest('hex');

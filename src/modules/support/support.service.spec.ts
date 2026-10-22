@@ -8,7 +8,10 @@ import { SupportRepository } from './support.repository';
 import { SupportService } from './support.service';
 
 const PHONE = '+2348150990267';
-const CONFIG: Record<string, string> = { INFOBIP_WHATSAPP_SENDER: '447860088970' };
+const CONFIG: Record<string, string> = {
+  INFOBIP_WHATSAPP_SENDER: '447860088970',
+  ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
+};
 const OPENER =
   'Hello! I’m Ladder, here to help you with your recent Zenith Bank account application. Which language would you like us to use? English, Nigerian Pidgin, Yoruba, Hausa, Igbo, or another?';
 
@@ -23,10 +26,27 @@ const issue = (overrides: Partial<AssistanceIssue> = {}): AssistanceIssue => ({
   contactPhone: null,
   preferredLanguage: null,
   expiresAt: new Date(Date.now() + 60_000),
-  createdAt: new Date('2026-10-22T10:00:00Z'),
-  updatedAt: new Date('2026-10-22T10:00:00Z'),
+  status: 'OPEN',
+  attempts: 1,
+  lastAttemptAt: new Date(),
+  attemptFingerprint: 'fp-attempt',
+  idFingerprint: 'fp-id',
+  openFingerprint: 'fp-attempt',
+  resolvedAt: null,
+  resolvedBy: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
   ...overrides,
 });
+
+const newIssue = {
+  partnerId: 'zenith',
+  method: 'BVN' as const,
+  failedType: 'BVN' as const,
+  reason: 'DOB_MISMATCH' as const,
+  enteredValue: '22345678901',
+  attemptValues: ['BVN', '22345678901', '1990-05-17'],
+};
 
 // What the AI returns in JSON mode.
 const ai = (reply: string, preferredLanguage: string | null = null) =>
@@ -50,6 +70,15 @@ describe('SupportService', () => {
     repo = {
       createIssue: jest.fn(async (data) => issue({ reference: data.reference })),
       findIssueByReference: jest.fn().mockResolvedValue(null),
+      findIssueByOpenFingerprint: jest.fn().mockResolvedValue(null),
+      // Like the database: the updated issue is the one that was found.
+      recordAttempt: jest.fn(async (id, data) => {
+        const found = await repo.findIssueByOpenFingerprint.mock.results.at(-1)?.value;
+        return issue({ ...found, id, attempts: (found?.attempts ?? 1) + 1, ...data });
+      }),
+      releaseOpenFingerprint: jest.fn(),
+      updateStatus: jest.fn().mockResolvedValue(true),
+      resolveByIdFingerprints: jest.fn().mockResolvedValue(1),
       claimIssue: jest.fn().mockResolvedValue(true),
       findLatestIssueForPhone: jest.fn().mockResolvedValue(null),
       setPreferredLanguage: jest.fn(),
@@ -74,13 +103,7 @@ describe('SupportService', () => {
 
   describe('openIssue', () => {
     it('stores only the last 4 characters and returns a pre-typed WhatsApp link', async () => {
-      const help = await service.openIssue({
-        partnerId: 'zenith',
-        method: 'BVN',
-        failedType: 'BVN',
-        reason: 'DOB_MISMATCH',
-        enteredValue: '22345678901',
-      });
+      const help = await service.openIssue(newIssue);
 
       expect(help.helpReference).toMatch(/^LDR-[2-9A-HJKMNP-Z]{6}$/);
       expect(help.whatsappUrl).toBe(
@@ -92,6 +115,80 @@ describe('SupportService', () => {
         expect.objectContaining({ maskedValue: '*******8901', reason: 'DOB_MISMATCH' }),
       );
       expect(JSON.stringify(repo.createIssue.mock.calls)).not.toContain('22345678901');
+      expect(JSON.stringify(repo.createIssue.mock.calls)).not.toContain('1990-05-17');
+    });
+
+    it('logs the attempt as open, keyed by fingerprints of the details', async () => {
+      await service.openIssue(newIssue);
+
+      const data = repo.createIssue.mock.calls[0][0];
+      expect(data.attemptFingerprint).toMatch(/^[0-9a-f]{64}$/);
+      expect(data.openFingerprint).toBe(data.attemptFingerprint);
+      expect(data.idFingerprint).toMatch(/^[0-9a-f]{64}$/);
+      expect(data.idFingerprint).not.toBe(data.attemptFingerprint);
+    });
+
+    it('reuses the open issue when the same details fail again', async () => {
+      await service.openIssue(newIssue);
+      const fingerprint = repo.createIssue.mock.calls[0][0].attemptFingerprint;
+      repo.findIssueByOpenFingerprint.mockResolvedValue(issue({ reference: 'LDR-SAME22' }));
+
+      const help = await service.openIssue(newIssue);
+
+      expect(repo.findIssueByOpenFingerprint).toHaveBeenLastCalledWith(fingerprint);
+      expect(help.helpReference).toBe('LDR-SAME22');
+      expect(repo.createIssue).toHaveBeenCalledTimes(1);
+      expect(repo.recordAttempt).toHaveBeenCalledWith('issue-1', {
+        expiresAt: expect.any(Date),
+      });
+    });
+
+    it('logs a new issue when any detail differs', async () => {
+      await service.openIssue(newIssue);
+      await service.openIssue({ ...newIssue, attemptValues: ['BVN', '22345678901', '1990-05-18'] });
+
+      const [first, second] = repo.createIssue.mock.calls.map(([data]) => data);
+      expect(first.attemptFingerprint).not.toBe(second.attemptFingerprint);
+      // Same ID: both issues resolve when it passes.
+      expect(first.idFingerprint).toBe(second.idFingerprint);
+    });
+
+    it('flags the issue for an agent on the third attempt', async () => {
+      repo.findIssueByOpenFingerprint.mockResolvedValue(issue({ attempts: 2, status: 'IN_CHAT' }));
+      await service.openIssue(newIssue);
+      expect(repo.recordAttempt).toHaveBeenCalledWith('issue-1', {
+        expiresAt: expect.any(Date),
+        status: 'NEEDS_ATTENTION',
+      });
+    });
+
+    it('keeps an escalated issue escalated however often it is retried', async () => {
+      repo.findIssueByOpenFingerprint.mockResolvedValue(
+        issue({ attempts: 5, status: 'ESCALATED' }),
+      );
+      await service.openIssue(newIssue);
+      expect(repo.recordAttempt.mock.calls[0][1]).not.toHaveProperty('status');
+    });
+
+    it('starts a new issue when the open one is too old to chat about', async () => {
+      repo.findIssueByOpenFingerprint.mockResolvedValueOnce(
+        issue({ createdAt: new Date(Date.now() - 8 * 86_400_000) }),
+      );
+      await service.openIssue(newIssue);
+      expect(repo.releaseOpenFingerprint).toHaveBeenCalledWith('issue-1');
+      expect(repo.createIssue).toHaveBeenCalled();
+    });
+
+    it('reuses the issue another request logged for the same details at the same moment', async () => {
+      repo.createIssue.mockRejectedValueOnce(uniqueViolation());
+      repo.findIssueByOpenFingerprint
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(issue({ reference: 'LDR-RACE22' }));
+
+      const help = await service.openIssue(newIssue);
+
+      expect(help.helpReference).toBe('LDR-RACE22');
+      expect(repo.createIssue).toHaveBeenCalledTimes(1);
     });
 
     it('retries when a reference is already taken', async () => {
@@ -102,8 +199,35 @@ describe('SupportService', () => {
         failedType: null,
         reason: 'LADDER_ID_UNKNOWN',
         enteredValue: 'LID-ABCD-EFGH',
+        attemptValues: ['LADDER_ID', 'LID-ABCD-EFGH'],
       });
       expect(repo.createIssue).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('resolveVerifiedIds', () => {
+    it('resolves the issues logged for an ID that now passes', async () => {
+      await service.openIssue(newIssue);
+      await service.resolveVerifiedIds('zenith', [{ type: 'BVN', value: '22345678901' }]);
+
+      expect(repo.resolveByIdFingerprints).toHaveBeenCalledWith(
+        [repo.createIssue.mock.calls[0][0].idFingerprint],
+        'Automatic',
+      );
+    });
+
+    it('matches Ladder IDs in any case', async () => {
+      await service.openIssue({
+        ...newIssue,
+        method: 'LADDER_ID',
+        failedType: null,
+        enteredValue: 'LID-ABCD-EFGH',
+      });
+      await service.resolveVerifiedIds('zenith', [{ type: 'LADDER_ID', value: 'lid-abcd-efgh' }]);
+
+      expect(repo.resolveByIdFingerprints.mock.calls[0][0]).toEqual([
+        repo.createIssue.mock.calls[0][0].idFingerprint,
+      ]);
     });
   });
 
@@ -115,6 +239,7 @@ describe('SupportService', () => {
 
       expect(repo.findIssueByReference).toHaveBeenCalledWith('LDR-7K3QX9');
       expect(repo.claimIssue).toHaveBeenCalledWith('issue-1', PHONE);
+      expect(repo.updateStatus).toHaveBeenCalledWith('issue-1', 'IN_CHAT', ['OPEN']);
       expect(repo.updateMessage).toHaveBeenCalledWith('msg-INBOUND', { issueId: 'issue-1' });
       expect(groq.complete).not.toHaveBeenCalled();
       expect(whatsApp.sendText).toHaveBeenCalledWith(PHONE, OPENER);
@@ -201,12 +326,34 @@ describe('SupportService', () => {
       expect(sentText()).toBe('Please check your date of birth.');
     });
 
+    it('flags the issue for an agent when the customer asks for a person', async () => {
+      repo.findLatestIssueForPhone.mockResolvedValue(issue({ contactPhone: PHONE }));
+      groq.complete.mockResolvedValue(
+        JSON.stringify({
+          preferred_language: null,
+          needs_human: true,
+          reply: 'An agent will help.',
+        }),
+      );
+
+      await service.handleInbound(inbound('I want to talk to a person'));
+
+      expect(repo.updateStatus).toHaveBeenCalledWith('issue-1', 'NEEDS_ATTENTION', [
+        'OPEN',
+        'IN_CHAT',
+      ]);
+    });
+
     it('sends the fixed explanation when the AI is unavailable', async () => {
       repo.findLatestIssueForPhone.mockResolvedValue(issue({ contactPhone: PHONE }));
       groq.complete.mockRejectedValue(new LlmUnavailableError('down'));
 
       await service.handleInbound(inbound('English'));
 
+      expect(repo.updateStatus).toHaveBeenCalledWith('issue-1', 'NEEDS_ATTENTION', [
+        'OPEN',
+        'IN_CHAT',
+      ]);
       expect(sentText()).toContain('ref LDR-7K3QX9');
       expect(sentText()).toContain('*What went wrong:* The date of birth entered does not match');
     });

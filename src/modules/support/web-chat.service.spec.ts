@@ -3,6 +3,7 @@ import { InMemoryWebChatStore } from '../../../test/in-memory-web-chat.store';
 import { GroqService, LlmUnavailableError } from '../../integrations/llm/groq.service';
 import { HelpChatAgent } from './help-chat.agent';
 import { SupportRepository } from './support.repository';
+import { SupportService } from './support.service';
 import { WebChatService } from './web-chat.service';
 import { WebChatStore } from './web-chat.store';
 
@@ -22,6 +23,14 @@ const issue = (overrides: Partial<AssistanceIssue> = {}): AssistanceIssue => ({
   contactPhone: null,
   preferredLanguage: null,
   expiresAt: new Date(Date.now() + 60_000),
+  status: 'OPEN',
+  attempts: 1,
+  lastAttemptAt: new Date(),
+  attemptFingerprint: 'fp-attempt',
+  idFingerprint: 'fp-id',
+  openFingerprint: 'fp-attempt',
+  resolvedAt: null,
+  resolvedBy: null,
   createdAt: new Date('2026-10-22T10:00:00Z'),
   updatedAt: new Date('2026-10-22T10:00:00Z'),
   ...overrides,
@@ -34,6 +43,7 @@ describe('WebChatService', () => {
   let store: InMemoryWebChatStore;
   let repo: jest.Mocked<SupportRepository>;
   let groq: jest.Mocked<GroqService>;
+  let support: jest.Mocked<SupportService>;
   let service: WebChatService;
 
   const aiCall = (n = 0) => groq.complete.mock.calls[n][0];
@@ -51,7 +61,16 @@ describe('WebChatService', () => {
       isConfigured: true,
       complete: jest.fn().mockResolvedValue(ai('Check your date of birth and try again.')),
     } as unknown as jest.Mocked<GroqService>;
-    service = new WebChatService(store as unknown as WebChatStore, repo, new HelpChatAgent(groq));
+    support = {
+      markInChat: jest.fn(),
+      markNeedsAttention: jest.fn(),
+    } as unknown as jest.Mocked<SupportService>;
+    service = new WebChatService(
+      store as unknown as WebChatStore,
+      repo,
+      support,
+      new HelpChatAgent(groq),
+    );
   });
 
   describe('startChat', () => {
@@ -64,6 +83,7 @@ describe('WebChatService', () => {
         `ladder: ${OPENER}`,
       ]);
       expect(groq.complete).not.toHaveBeenCalled();
+      expect(support.markInChat).toHaveBeenCalledWith('issue-1');
     });
 
     it('reopens the same chat when Get help is tapped again', async () => {
@@ -73,6 +93,7 @@ describe('WebChatService', () => {
 
       expect(again.chatId).toBe(REF);
       expect(store.transcript(REF)).toHaveLength(4);
+      expect(support.markInChat).toHaveBeenCalledTimes(1);
     });
 
     it('opens a new chat about the details screen when there is no reference', async () => {
@@ -154,6 +175,28 @@ describe('WebChatService', () => {
       ]);
     });
 
+    it('gives the AI where to go and what to bring when the record must be fixed', async () => {
+      await send('English');
+
+      const data = aiCall()[1].content;
+      expect(data).toContain('"office_visit":{"BVN":');
+      expect(data).toContain('Birth certificate, or a sworn declaration of age');
+      expect(data).toContain('"other_record_fixes":{"BVN":');
+      expect(aiCall()[0].content).toContain('Never mention fees');
+    });
+
+    it('flags the issue for an agent when the customer asks for a person', async () => {
+      groq.complete.mockResolvedValue(
+        JSON.stringify({
+          preferred_language: null,
+          needs_human: true,
+          reply: 'An agent will help.',
+        }),
+      );
+      await send('Can I talk to a person?');
+      expect(support.markNeedsAttention).toHaveBeenCalledWith('issue-1');
+    });
+
     it('shows Ladder typing while the AI writes, and clears it after', async () => {
       await send('English');
       expect(store.typing).toEqual([true, false]);
@@ -201,6 +244,57 @@ describe('WebChatService', () => {
     it('refuses a message for another partner’s chat', async () => {
       await expect(service.sendMessage('gtbank', REF, TOKEN, 'hi')).rejects.toMatchObject({
         code: 'HELP_CHAT_SESSION_INVALID',
+      });
+    });
+
+    describe('when an agent takes over', () => {
+      it('posts the agent’s message, and the AI stops answering', async () => {
+        await service.postAgentMessage(REF, 'Ladder Support', 'Hi, I’m here to help.');
+        await send('Thank you');
+
+        expect(store.chats.get(REF)).toMatchObject({ mode: 'agent', agentName: 'Ladder Support' });
+        expect(store.messages.get(REF)?.at(-2)).toMatchObject({
+          sender: 'agent',
+          agentName: 'Ladder Support',
+        });
+        expect(store.transcript(REF).at(-1)).toBe('customer: Thank you');
+        expect(groq.complete).not.toHaveBeenCalled();
+        // The customer is waiting for the agent.
+        expect(support.markNeedsAttention).toHaveBeenCalledWith('issue-1');
+      });
+
+      it('drops an AI reply that was still being written', async () => {
+        groq.complete.mockImplementation(async () => {
+          await service.postAgentMessage(REF, 'Ladder Support', 'I’ve got this.');
+          return ai('AI reply');
+        });
+
+        await send('English');
+
+        expect(store.transcript(REF)).not.toContain('ladder: AI reply');
+        expect(store.transcript(REF).at(-1)).toBe('agent: I’ve got this.');
+      });
+
+      it('lets the AI answer again after the agent hands the chat back', async () => {
+        await service.postAgentMessage(REF, 'Ladder Support', 'Hello');
+        await service.handBackToAi(REF);
+        await send('English');
+
+        expect(store.chats.get(REF)).toMatchObject({ mode: 'ai', agentName: null });
+        expect(store.transcript(REF)).toContain(
+          'ladder: You’re back with Ladder’s assistant. Ask me anything about your account opening check.',
+        );
+        expect(store.transcript(REF).at(-1)).toBe(
+          'ladder: Check your date of birth and try again.',
+        );
+        // The AI sees what the agent said.
+        expect(aiCall()[1].content).toContain('Ladder agent: Hello');
+      });
+
+      it('refuses an agent message before the customer opens the chat', async () => {
+        await expect(
+          service.postAgentMessage('LDR-2222AB', 'Ladder Support', 'Hi'),
+        ).rejects.toMatchObject({ code: 'HELP_CHAT_NOT_STARTED' });
       });
     });
 

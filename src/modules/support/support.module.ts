@@ -24,6 +24,6 @@ import { WebChatStore } from './web-chat.store';
     WebChatStore,
     PartnerGuard,
   ],
-  exports: [SupportService],
+  exports: [SupportService, WebChatService],
 })
 export class SupportModule {}

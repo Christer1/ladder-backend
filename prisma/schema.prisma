@@ -59,6 +59,20 @@ enum AssistanceIssueReason {
   LADDER_ID_NOT_VERIFIED
 }
 
+// Where a help issue stands, shown to agents on ladder-agent-dashboard.
+enum AssistanceIssueStatus {
+  // Logged on the failed identify.
+  OPEN
+  // The customer opened the help chat (web or WhatsApp).
+  IN_CHAT
+  // The customer is waiting for a person: retried 3+ times, asked for a human, the AI could not
+  // answer, or wrote while an agent has the chat.
+  NEEDS_ATTENTION
+  ESCALATED
+  // The same ID later passed identify, or an agent resolved it.
+  RESOLVED
+}
+
 enum MessageDirection {
   INBOUND
   OUTBOUND
@@ -186,30 +200,60 @@ model AssistanceSession {
   @@map("assistance_sessions")
 }
 
-// A failed assistance identify, logged so the customer can get help on WhatsApp. The partner screen
-// links to WhatsApp with the reference pre-typed; the first phone that sends it claims the issue.
+// A failed assistance identify, logged so the customer can get help in the chat (web or WhatsApp)
+// and agents can follow it up. Retrying with the same details reuses the open issue.
 model AssistanceIssue {
-  id                String                @id @default(uuid())
-  reference         String                @unique
-  partnerId         String                @map("partner_id")
-  method            AssistanceMethod
+  id                 String                @id @default(uuid())
+  reference          String                @unique
+  partnerId          String                @map("partner_id")
+  method             AssistanceMethod
   // BVN or NIN when one of them failed; null for Ladder IDs.
-  failedType        VerificationType?     @map("failed_type")
-  reason            AssistanceIssueReason
+  failedType         VerificationType?     @map("failed_type")
+  reason             AssistanceIssueReason
   // Only the last 4 characters of what was typed, e.g. *******8901.
-  maskedValue       String                @map("masked_value")
-  contactPhone      String?               @map("contact_phone")
+  maskedValue        String                @map("masked_value")
+  contactPhone       String?               @map("contact_phone")
   // Chosen in the help chat after Ladder's opening message, e.g. "Yoruba".
-  preferredLanguage String?               @map("preferred_language")
+  preferredLanguage  String?               @map("preferred_language")
   // Until then an unclaimed reference can be claimed.
-  expiresAt         DateTime              @map("expires_at")
-  createdAt         DateTime              @default(now()) @map("created_at")
-  updatedAt         DateTime              @updatedAt @map("updated_at")
+  expiresAt          DateTime              @map("expires_at")
+  status             AssistanceIssueStatus @default(OPEN)
+  // Failed identifies with exactly these details while the issue was open.
+  attempts           Int                   @default(1)
+  lastAttemptAt      DateTime              @default(now()) @map("last_attempt_at")
+  // Keyed HMACs (never the numbers): of everything typed, and of the failed ID alone.
+  attemptFingerprint String                @map("attempt_fingerprint")
+  idFingerprint      String                @map("id_fingerprint")
+  // attemptFingerprint while the issue is open, else null: one open issue per set of details.
+  openFingerprint    String?               @unique @map("open_fingerprint")
+  resolvedAt         DateTime?             @map("resolved_at")
+  // "Automatic" when the ID later passed identify, else the agent's name.
+  resolvedBy         String?               @map("resolved_by")
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
 
   messages WhatsAppMessage[]
+  notes    AssistanceIssueNote[]
 
   @@index([contactPhone])
+  @@index([idFingerprint])
+  @@index([status, updatedAt])
   @@map("assistance_issues")
+}
+
+// An agent's note on a help issue (ladder-agent-dashboard).
+model AssistanceIssueNote {
+  id         String   @id @default(uuid())
+  issueId    String   @map("issue_id")
+  text       String
+  authorName String   @map("author_name")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  issue AssistanceIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  @@index([issueId])
+  @@map("assistance_issue_notes")
 }
 
 // Every WhatsApp message to or from a customer. Long numbers are masked before storing.

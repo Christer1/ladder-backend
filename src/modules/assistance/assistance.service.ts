@@ -16,7 +16,7 @@ import {
   IdentityPerson,
   IdentityProvider,
 } from '../../integrations/identity/identity.provider';
-import { NewAssistanceIssue, SupportService } from '../support/support.service';
+import { NewAssistanceIssue, SupportService, VerifiedId } from '../support/support.service';
 import { UsersService } from '../users/users.service';
 import { UploadedImage } from '../verification/verification.service';
 import {
@@ -56,7 +56,8 @@ type IdType = typeof VerificationType.BVN | typeof VerificationType.NIN;
 
 // Partner account opening (ladder-assistance): identify with BVN/NIN or a Ladder ID, pass liveness,
 // then review the details on file. Nothing personal is returned until liveness passes.
-// A failed identify is logged as an issue the customer can get help with on WhatsApp.
+// A failed identify is logged as a help issue (one per set of details) for the help chat and agents;
+// passing identify later resolves it.
 @Injectable()
 export class AssistanceService {
   private readonly logger = new Logger(AssistanceService.name);
@@ -79,7 +80,9 @@ export class AssistanceService {
       VerificationType.BVN,
       bvn,
       dateOfBirth,
+      ['BVN', bvn, dateOfBirth],
     );
+    await this.resolveHelpIssues(partnerId, [{ type: VerificationType.BVN, value: bvn }]);
     return this.startSession(partnerId, AssistanceMethod.BVN, providerRef);
   }
 
@@ -94,7 +97,9 @@ export class AssistanceService {
       VerificationType.NIN,
       nin,
       dateOfBirth,
+      ['NIN', nin, dateOfBirth],
     );
+    await this.resolveHelpIssues(partnerId, [{ type: VerificationType.NIN, value: nin }]);
     return this.startSession(partnerId, AssistanceMethod.NIN, providerRef);
   }
 
@@ -106,8 +111,23 @@ export class AssistanceService {
     dateOfBirth: string,
   ): Promise<StartedAssistanceSession> {
     const method = AssistanceMethod.BVN_AND_NIN;
-    const bvnRef = await this.match(partnerId, method, VerificationType.BVN, bvn, dateOfBirth);
-    const ninRef = await this.match(partnerId, method, VerificationType.NIN, nin, dateOfBirth);
+    const attempt = ['BVN', bvn, 'NIN', nin, dateOfBirth];
+    const bvnRef = await this.match(
+      partnerId,
+      method,
+      VerificationType.BVN,
+      bvn,
+      dateOfBirth,
+      attempt,
+    );
+    const ninRef = await this.match(
+      partnerId,
+      method,
+      VerificationType.NIN,
+      nin,
+      dateOfBirth,
+      attempt,
+    );
     const [bvnPerson, ninPerson] = await Promise.all([
       this.identityProvider.getPerson(bvnRef),
       this.identityProvider.getPerson(ninRef),
@@ -119,8 +139,13 @@ export class AssistanceService {
         failedType: VerificationType.NIN,
         reason: AssistanceIssueReason.DIFFERENT_PEOPLE,
         enteredValue: nin,
+        attemptValues: attempt,
       });
     }
+    await this.resolveHelpIssues(partnerId, [
+      { type: VerificationType.BVN, value: bvn },
+      { type: VerificationType.NIN, value: nin },
+    ]);
     return this.startSession(partnerId, method, bvnRef);
   }
 
@@ -148,8 +173,10 @@ export class AssistanceService {
           ? AssistanceIssueReason.LADDER_ID_NOT_VERIFIED
           : AssistanceIssueReason.LADDER_ID_UNKNOWN,
         enteredValue: ladderId,
+        attemptValues: ['LADDER_ID', ladderId.trim().toUpperCase()],
       });
     }
+    await this.resolveHelpIssues(partnerId, [{ type: 'LADDER_ID', value: ladderId }]);
 
     return this.startSession(partnerId, AssistanceMethod.LADDER_ID, source.providerRef, user.id);
   }
@@ -229,6 +256,7 @@ export class AssistanceService {
     type: IdType,
     number: string,
     dateOfBirth: string,
+    attemptValues: string[],
   ): Promise<string> {
     const result =
       type === VerificationType.BVN
@@ -241,6 +269,7 @@ export class AssistanceService {
         failedType: type,
         reason: result.failure ?? AssistanceIssueReason.NOT_FOUND,
         enteredValue: number,
+        attemptValues,
       });
     }
     return result.providerRef;
@@ -254,6 +283,16 @@ export class AssistanceService {
     } catch (error) {
       this.logger.error(`Could not log the help issue: ${(error as Error).stack}`);
       return new AppError(code);
+    }
+  }
+
+  // The customer got past identify: their open help issues for these IDs are resolved. Never
+  // blocks the identify.
+  private async resolveHelpIssues(partnerId: string, ids: VerifiedId[]): Promise<void> {
+    try {
+      await this.supportService.resolveVerifiedIds(partnerId, ids);
+    } catch (error) {
+      this.logger.error(`Could not resolve help issues: ${(error as Error).stack}`);
     }
   }
 
