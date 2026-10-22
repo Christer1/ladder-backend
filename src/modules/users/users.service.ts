@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, User, UserStatus } from '@prisma/client';
+import { OnboardingStep, Prisma, User, UserStatus } from '@prisma/client';
 import { AppError } from '../../common/errors/app-error';
 import { generateLadderId } from '../../common/utils/ladder-id';
 import { maskLast4 } from '../../common/utils/mask';
@@ -34,12 +34,13 @@ export class UsersService {
     return this.usersRepository.update(id, { emailVerifiedAt: new Date() });
   }
 
-  setPinHash(id: string, pinHash: string): Promise<User> {
-    return this.usersRepository.update(id, { pinHash });
+  setLastOnboardingStep(id: string, lastOnboardingStep: OnboardingStep): Promise<User> {
+    return this.usersRepository.update(id, { lastOnboardingStep });
   }
 
-  // Called after a BVN or NIN matches: stores the verified date of birth and issues the Ladder ID once.
-  async completeVerification(id: string, dateOfBirth: Date): Promise<User> {
+  // Issues the Ladder ID once. Called after a BVN or NIN matches (with the verified date of birth)
+  // and after liveness for users who verified with a Government ID instead (no date of birth).
+  async completeVerification(id: string, dateOfBirth: Date | null): Promise<User> {
     const user = await this.findById(id);
     if (user.ladderId) return user;
 
@@ -47,7 +48,7 @@ export class UsersService {
       try {
         return await this.usersRepository.update(id, {
           ladderId: generateLadderId(),
-          dateOfBirth,
+          ...(dateOfBirth && { dateOfBirth }),
           status: UserStatus.VERIFIED,
         });
       } catch (error) {

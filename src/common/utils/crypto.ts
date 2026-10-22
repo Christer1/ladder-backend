@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomInt } from 'crypto';
 import * as argon2 from 'argon2';
 
-// One-way hash for secrets the user types (PIN, OTP).
+// One-way hash for secrets the user types (password, OTP).
 export const hashSecret = (value: string): Promise<string> =>
   argon2.hash(value, { type: argon2.argon2id });
 

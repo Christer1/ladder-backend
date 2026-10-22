@@ -40,9 +40,10 @@ export const ERROR_CODES = {
     status: HttpStatus.TOO_MANY_REQUESTS,
     message: 'Please wait before requesting a new code.',
   },
-  PIN_ALREADY_SET: { status: HttpStatus.CONFLICT, message: 'Your PIN has already been created.' },
-  PIN_MISMATCH: { status: HttpStatus.BAD_REQUEST, message: 'PINs do not match.' },
-  PIN_REQUIRED: { status: HttpStatus.FORBIDDEN, message: 'Create your PIN first.' },
+  PASSWORD_MISMATCH: {
+    status: HttpStatus.BAD_REQUEST,
+    message: 'Passwords do not match.',
+  },
 
   ALREADY_VERIFIED: {
     status: HttpStatus.CONFLICT,
@@ -71,6 +72,19 @@ export const ERROR_CODES = {
   NIN_DOB_MISMATCH: {
     status: HttpStatus.UNPROCESSABLE_ENTITY,
     message: 'The date of birth does not match this NIN.',
+  },
+  IDENTITY_REQUIRED: {
+    status: HttpStatus.CONFLICT,
+    message: 'Verify your BVN, NIN or Government ID first.',
+  },
+  FILE_REQUIRED: { status: HttpStatus.BAD_REQUEST, message: 'Add the required photo.' },
+  FILE_TYPE_INVALID: {
+    status: HttpStatus.BAD_REQUEST,
+    message: 'This file type is not supported.',
+  },
+  FILE_TOO_LARGE: {
+    status: HttpStatus.PAYLOAD_TOO_LARGE,
+    message: 'The file must be 5 MB or smaller.',
   },
   EMAIL_SEND_FAILED: {
     status: HttpStatus.BAD_GATEWAY,

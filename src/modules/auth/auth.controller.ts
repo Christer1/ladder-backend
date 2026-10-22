@@ -8,7 +8,6 @@ import { ResponseMessage } from '../../common/decorators/response-message.decora
 import { EnvironmentVariables } from '../../config/env.validation';
 import { AuthService } from './auth.service';
 import { OtpSentResponse, SessionResponse } from './dto/auth.response';
-import { CreatePinDto } from './dto/create-pin.dto';
 import { LoginDto } from './dto/login.dto';
 import { ResendOtpDto } from './dto/resend-otp.dto';
 import { SignupDto } from './dto/signup.dto';
@@ -57,12 +56,6 @@ export class AuthController {
   @ResponseMessage('Signed in.')
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response): Promise<void> {
     this.setSessionCookie(res, await this.authService.login(dto));
-  }
-
-  @Post('pin')
-  @ResponseMessage('PIN created.')
-  createPin(@CurrentUser() user: AuthUser, @Body() dto: CreatePinDto): Promise<void> {
-    return this.authService.createPin(user.id, dto);
   }
 
   @Post('logout')

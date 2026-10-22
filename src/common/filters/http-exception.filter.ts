@@ -23,6 +23,8 @@ const STATUS_TO_CODE: Partial<Record<number, ErrorCode>> = {
   [HttpStatus.UNAUTHORIZED]: 'UNAUTHENTICATED',
   [HttpStatus.FORBIDDEN]: 'FORBIDDEN',
   [HttpStatus.NOT_FOUND]: 'NOT_FOUND',
+  // Multer's size limit on uploads.
+  [HttpStatus.PAYLOAD_TOO_LARGE]: 'FILE_TOO_LARGE',
   [HttpStatus.TOO_MANY_REQUESTS]: 'RATE_LIMITED',
 };
 
