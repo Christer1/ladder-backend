@@ -144,6 +144,25 @@ Rules: a wrong number, an unknown number, an invalid record and a wrong date of 
 
 The browser signs in with `firebaseToken` (uid `help_<chatId>`) and reads `helpChats/{chatId}` live; `firestore.rules` lets it read only that chat and never write.
 
+**Help issues (one per set of details).** `SupportService.openIssue` stores keyed HMAC fingerprints (`common/utils/crypto.ts` `fingerprint`, keyed with `ENCRYPTION_KEY`), never the numbers: `attemptFingerprint` of everything typed (partner, method, numbers, date of birth) and `idFingerprint` of the ID that failed. While an issue is open, `openFingerprint` (unique) holds its attempt fingerprint, so the same details failing again return the same reference and add to `attempts` (a race on the unique index falls back to the same reuse). A different number or date logs a new issue. An open issue older than `HELP_CHAT_TTL_DAYS` releases its slot. Statuses: `OPEN` → `IN_CHAT` (chat opened) → `NEEDS_ATTENTION` (3+ attempts, the AI's `needs_human`, the AI failing, or a customer message while an agent has the chat) → `ESCALATED` / `RESOLVED`. A later successful identify resolves the open issues of that ID (`resolvedBy: "Automatic"`); resolving frees the details.
+
+**Knowledge.** `help-chat.knowledge.ts` holds what the AI may say, including `RECORD_FIXES`: where to fix a BVN (bank) or NIN (NIMC) record and what to bring, per change (date of birth, name, phone number, record status). **Its facts must be confirmed with NIMC and the partner bank before production** (see the file). The AI never states fees or timelines.
+
+**Agents (`ladder-agent-dashboard`).** `modules/agent`, `@Public()` with **no sign-in yet: never deploy as is**. Every agent acts as `AGENT_NAME`. An agent reply sets the web chat's `mode` to `agent` (the AI stops answering, including a reply it was still writing) until **hand-back**.
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/agent/me` | – | `{ fullName, role }` |
+| GET | `/agent/cases/summary` | – | `{ inProgress (OPEN + IN_CHAT), needsAttention, resolvedToday (Lagos day), total }` |
+| GET | `/agent/cases` | query `search?`, `status?` (a status or `IN_PROGRESS`), `page` | `{ items, page, pageSize: 8, total }`. Search: reference, last digits of the ID, WhatsApp number |
+| GET | `/agent/cases/:ref` | – | case + `stages`, `guidance`, `officeVisits`, `chat` (Firestore transcript, or null), `notes`. `404 CASE_NOT_FOUND` |
+| POST | `/agent/cases/:ref/instructions` | – | posts the fixed explanation into the chat. `409 HELP_CHAT_NOT_STARTED` / `CASE_RESOLVED` |
+| POST | `/agent/cases/:ref/messages` | `{ text }` 1–1000 | agent reply, takes the chat over |
+| POST | `/agent/cases/:ref/hand-back` | – | the AI answers again |
+| POST | `/agent/cases/:ref/escalate` | – | `409 CASE_NOT_ESCALATABLE` unless OPEN, IN_CHAT or NEEDS_ATTENTION |
+| POST | `/agent/cases/:ref/resolve` | – | `409 CASE_RESOLVED` |
+| POST | `/agent/cases/:ref/notes` | `{ text }` 1–500 | – |
+
 BVN/NIN errors (`422`): `BVN_NOT_FOUND`, `BVN_INVALID`, `BVN_DOB_MISMATCH` (and the `NIN_` equivalents). Brevo failure: `502 EMAIL_SEND_FAILED`.
 
 ## 6. Model rules

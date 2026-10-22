@@ -1,5 +1,11 @@
 import { AssistanceIssue, AssistanceMethod, VerificationType } from '@prisma/client';
-import { DETAILS_UNAVAILABLE_GUIDANCE, issueGuidance, IssueGuidance } from './help-chat.knowledge';
+import {
+  DETAILS_UNAVAILABLE_GUIDANCE,
+  issueGuidance,
+  IssueGuidance,
+  OfficeVisit,
+  RECORD_FIXES,
+} from './help-chat.knowledge';
 
 // What the AI is told about the customer's problem (its ISSUE DATA), and the fixed reply sent when
 // the AI can't answer. Shared by the WhatsApp and web chats.
@@ -37,10 +43,24 @@ export function issueContext(
       preferred_language: preferredLanguage,
       what_went_wrong: guidance.whatWentWrong,
       how_to_fix: guidance.howToFix,
+      // Where to go and what to bring if the record itself must be fixed.
+      office_visit: guidance.officeVisits ? officeVisitData(guidance.officeVisits) : null,
+      // For follow-up questions about changing something else on the same record.
+      other_record_fixes: issue.failedType
+        ? { [issue.failedType]: officeVisitData(RECORD_FIXES[issue.failedType as IdType]) }
+        : null,
     },
     fallback: fixedReply(guidance, `We found your request (ref ${issue.reference}).`),
   };
 }
+
+const officeVisitData = (visits: Record<string, OfficeVisit>) =>
+  Object.fromEntries(
+    Object.entries(visits).map(([key, visit]) => [
+      key,
+      { where: visit.where, bring: visit.bring, notes: visit.notes },
+    ]),
+  );
 
 // The web chat opened from the "couldn't load your details" screen, which has no reference.
 export function detailsUnavailableContext(
@@ -62,10 +82,19 @@ export function detailsUnavailableContext(
 // Sent when the AI is not configured, unavailable, or keeps breaking the rules.
 function fixedReply(guidance: IssueGuidance, found?: string): string {
   const steps = guidance.howToFix.map((step, i) => `${i + 1}. ${step}`).join('\n');
+  const visits = Object.entries(guidance.officeVisits ?? {}).map(
+    ([id, visit]) =>
+      `*If your ${id} record needs fixing,* visit ${OFFICE[id] ?? 'the office'} with:\n${visit.bring
+        .map((item) => `- ${item}`)
+        .join('\n')}`,
+  );
   return [
     `Hi, this is Ladder.${found ? ` ${found}` : ''}`,
     `*What went wrong:* ${guidance.whatWentWrong}`,
     `*How to fix it:*\n${steps}`,
+    ...visits,
     'Please never send your BVN, NIN, PIN or OTP in this chat.',
   ].join('\n\n');
 }
+
+const OFFICE: Record<string, string> = { NIN: 'an NIMC enrolment centre', BVN: 'your bank' };

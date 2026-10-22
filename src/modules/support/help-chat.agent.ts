@@ -22,6 +22,10 @@ export interface HelpChatReply {
   reply: string;
   // The language the customer chose or switched to in this message, as reported by the AI.
   preferredLanguage: string | null;
+  // The customer should hear from a person: they asked, or the AI could not help.
+  needsHuman: boolean;
+  // The AI was tried but was down or kept breaking the rules, so the fixed reply was sent.
+  aiFailed: boolean;
 }
 
 // Writes Ladder's help chat replies with Groq, whatever the channel. Every AI reply is checked
@@ -33,8 +37,8 @@ export class HelpChatAgent {
   constructor(private readonly groq: GroqService) {}
 
   async reply(input: HelpChatReplyInput): Promise<HelpChatReply> {
-    const fallback = { reply: input.fallback, preferredLanguage: null };
-    if (!this.groq.isConfigured) return fallback;
+    const fallback = { reply: input.fallback, preferredLanguage: null, needsHuman: false };
+    if (!this.groq.isConfigured) return { ...fallback, aiFailed: false };
 
     const messages: ChatMessage[] = [
       { role: 'system', content: HELP_CHAT_SYSTEM_PROMPTS[input.channel] },
@@ -59,14 +63,18 @@ export class HelpChatAgent {
     } catch (error) {
       if (!(error instanceof LlmUnavailableError)) throw error;
     }
-    return fallback;
+    return { ...fallback, aiFailed: true };
   }
 }
 
-// { "preferred_language": string | null, "reply": string }, or null if the AI sent anything else.
+// { "preferred_language", "needs_human", "reply" }, or null if the AI sent anything else.
 function parseAiReply(raw: string): HelpChatReply | null {
   try {
-    const data = JSON.parse(raw) as { preferred_language?: unknown; reply?: unknown };
+    const data = JSON.parse(raw) as {
+      preferred_language?: unknown;
+      needs_human?: unknown;
+      reply?: unknown;
+    };
     if (typeof data.reply !== 'string') return null;
     const language =
       typeof data.preferred_language === 'string'
@@ -74,7 +82,12 @@ function parseAiReply(raw: string): HelpChatReply | null {
         : '';
     // Both channels bold with single asterisks; models often write markdown's double ones.
     const reply = data.reply.trim().replace(/\*\*(.+?)\*\*/g, '*$1*');
-    return { reply, preferredLanguage: language || null };
+    return {
+      reply,
+      preferredLanguage: language || null,
+      needsHuman: data.needs_human === true,
+      aiFailed: false,
+    };
   } catch {
     return null;
   }

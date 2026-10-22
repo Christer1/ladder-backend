@@ -14,6 +14,17 @@ export const PARTNER_ID_HEADER = 'x-partner-id';
 export const HELP_REFERENCE_TTL_HOURS = 24;
 export const HELP_CHAT_TTL_DAYS = 7;
 export const HELP_TRANSCRIPT_MESSAGES = 12;
+// Failed identifies with the same details before the issue needs an agent's attention.
+export const HELP_ATTEMPTS_NEEDING_ATTENTION = 3;
+
+// ladder-agent-dashboard. Agents don't sign in yet, so every agent acts as this name (notes, chat
+// replies) and the /agent routes are open: never deploy them as they are.
+export const AGENT_NAME = 'Ladder Support';
+export const AGENT_ROLE = 'Support Agent';
+export const AGENT_CASES_PAGE_SIZE = 8;
+export const AGENT_NOTE_MAX_LENGTH = 500;
+// Partner screens are in Nigeria: "today" for the summary starts at midnight Lagos time (UTC+1).
+export const AGENT_TIMEZONE_OFFSET_HOURS = 1;
 
 // Web help chat (Firestore). A chat for a reference can be reopened for HELP_CHAT_TTL_DAYS.
 export const WEB_CHAT_COLLECTION = 'helpChats';

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   AssistanceIssue,
   AssistanceIssueReason,
+  AssistanceIssueStatus,
   AssistanceMethod,
   DeliveryStatus,
   MessageDirection,
@@ -11,8 +12,10 @@ import {
 } from '@prisma/client';
 import { AppError } from '../../common/errors/app-error';
 import { randomBlock } from '../../common/utils/ladder-id';
+import { fingerprint } from '../../common/utils/crypto';
 import { last4, maskLast4 } from '../../common/utils/mask';
 import {
+  HELP_ATTEMPTS_NEEDING_ATTENTION,
   HELP_CHAT_TTL_DAYS,
   HELP_REFERENCE_TTL_HOURS,
   HELP_TRANSCRIPT_MESSAGES,
@@ -34,8 +37,17 @@ export interface NewAssistanceIssue {
   // BVN or NIN when one of them failed; null for Ladder IDs.
   failedType: IdType | null;
   reason: AssistanceIssueReason;
-  // What the customer typed. Only its last 4 characters are stored.
+  // The value that failed. Only its last 4 characters are stored.
   enteredValue: string;
+  // Everything the customer typed (numbers, date of birth). Only a keyed fingerprint is stored:
+  // retrying with the same details reuses the open issue instead of logging another.
+  attemptValues: string[];
+}
+
+// An ID that passed identify: its open issues are resolved.
+export interface VerifiedId {
+  type: VerificationType | 'LADDER_ID';
+  value: string;
 }
 
 // Returned to the partner screen beside the error: the Get Help button opens whatsappUrl.
@@ -87,9 +99,21 @@ export class SupportService {
     @Inject(WHATSAPP_PROVIDER) private readonly whatsApp: WhatsAppProvider,
   ) {}
 
+  // Logs a failed identify, or counts another attempt on the open issue with the same details.
   async openIssue(input: NewAssistanceIssue): Promise<AssistanceHelp> {
-    const expiresAt = new Date(Date.now() + HELP_REFERENCE_TTL_HOURS * 3_600_000);
+    const attemptFingerprint = this.fingerprint(
+      ['attempt', input.partnerId, input.method, ...input.attemptValues].join('|'),
+    );
+    const existing = await this.supportRepository.findIssueByOpenFingerprint(attemptFingerprint);
+    if (existing) {
+      if (existing.createdAt.getTime() > Date.now() - HELP_CHAT_TTL_DAYS * DAY_MS) {
+        return this.help(await this.recordAttempt(existing));
+      }
+      // Too old to chat about: close the slot so this attempt starts a fresh issue.
+      await this.supportRepository.releaseOpenFingerprint(existing.id);
+    }
 
+    const expiresAt = new Date(Date.now() + HELP_REFERENCE_TTL_HOURS * 3_600_000);
     for (let attempt = 0; attempt < REFERENCE_MAX_TRIES; attempt++) {
       try {
         const issue = await this.supportRepository.createIssue({
@@ -100,13 +124,75 @@ export class SupportService {
           reason: input.reason,
           maskedValue: maskLast4(last4(input.enteredValue), input.enteredValue.length),
           expiresAt,
+          attemptFingerprint,
+          openFingerprint: attemptFingerprint,
+          idFingerprint: this.idFingerprint(input.partnerId, {
+            type: input.failedType ?? 'LADDER_ID',
+            value: input.enteredValue,
+          }),
         });
-        return { helpReference: issue.reference, whatsappUrl: this.whatsAppUrl(issue.reference) };
+        return this.help(issue);
       } catch (error) {
         if (!isUniqueViolation(error)) throw error;
+        // The same attempt arrived twice at once: the other request logged it.
+        const winner = await this.supportRepository.findIssueByOpenFingerprint(attemptFingerprint);
+        if (winner) return this.help(await this.recordAttempt(winner));
+        // Otherwise the reference was taken: try another.
       }
     }
     throw new AppError('INTERNAL_ERROR');
+  }
+
+  // Resolves the open issues of IDs that have now passed identify.
+  async resolveVerifiedIds(partnerId: string, ids: VerifiedId[]): Promise<void> {
+    await this.supportRepository.resolveByIdFingerprints(
+      ids.map((id) => this.idFingerprint(partnerId, id)),
+      'Automatic',
+    );
+  }
+
+  // The customer opened the chat: an OPEN issue moves to IN_CHAT.
+  async markInChat(issueId: string): Promise<void> {
+    await this.supportRepository.updateStatus(issueId, AssistanceIssueStatus.IN_CHAT, [
+      AssistanceIssueStatus.OPEN,
+    ]);
+  }
+
+  // The customer is waiting for a person. Escalated and resolved issues keep their status.
+  async markNeedsAttention(issueId: string): Promise<void> {
+    await this.supportRepository.updateStatus(issueId, AssistanceIssueStatus.NEEDS_ATTENTION, [
+      AssistanceIssueStatus.OPEN,
+      AssistanceIssueStatus.IN_CHAT,
+    ]);
+  }
+
+  private async recordAttempt(issue: AssistanceIssue): Promise<AssistanceIssue> {
+    const attempts = issue.attempts + 1;
+    const needsAttention =
+      attempts >= HELP_ATTEMPTS_NEEDING_ATTENTION &&
+      (issue.status === AssistanceIssueStatus.OPEN ||
+        issue.status === AssistanceIssueStatus.IN_CHAT);
+    return this.supportRepository.recordAttempt(issue.id, {
+      // Long enough for the customer to open the chat about this attempt.
+      expiresAt: new Date(
+        Math.max(issue.expiresAt.getTime(), Date.now() + HELP_REFERENCE_TTL_HOURS * 3_600_000),
+      ),
+      ...(needsAttention && { status: AssistanceIssueStatus.NEEDS_ATTENTION }),
+    });
+  }
+
+  private help(issue: AssistanceIssue): AssistanceHelp {
+    return { helpReference: issue.reference, whatsappUrl: this.whatsAppUrl(issue.reference) };
+  }
+
+  private fingerprint(value: string): string {
+    return fingerprint(value, this.config.get('ENCRYPTION_KEY', { infer: true }));
+  }
+
+  // Ladder IDs are matched case-insensitively, like identify.
+  private idFingerprint(partnerId: string, id: VerifiedId): string {
+    const value = id.type === 'LADDER_ID' ? id.value.trim().toUpperCase() : id.value;
+    return this.fingerprint(['id', partnerId, id.type, value].join('|'));
   }
 
   // One customer message from the webhook: store it, find the issue it is about, reply. The message
@@ -176,6 +262,7 @@ export class SupportService {
     if (!issue) return { issue: null, referenceProblem: 'not_found' };
     if (issue.contactPhone === phone) return { issue };
     if (!issue.contactPhone && (await this.supportRepository.claimIssue(issue.id, phone))) {
+      await this.markInChat(issue.id);
       return { issue: { ...issue, contactPhone: phone }, claimed: true };
     }
     return {
@@ -192,7 +279,7 @@ export class SupportService {
     text: string,
   ): Promise<string> {
     const context = issue && issueContext(issue, issue.preferredLanguage);
-    const { reply, preferredLanguage } = await this.agent.reply({
+    const { reply, preferredLanguage, needsHuman, aiFailed } = await this.agent.reply({
       channel: 'whatsapp',
       data:
         context?.data ??
@@ -204,6 +291,7 @@ export class SupportService {
     if (issue && preferredLanguage && preferredLanguage !== issue.preferredLanguage) {
       await this.supportRepository.setPreferredLanguage(issue.id, preferredLanguage);
     }
+    if (issue && (needsHuman || aiFailed)) await this.markNeedsAttention(issue.id);
     return reply;
   }
 

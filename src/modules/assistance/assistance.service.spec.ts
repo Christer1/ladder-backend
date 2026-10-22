@@ -72,6 +72,7 @@ describe('AssistanceService', () => {
     };
     support = {
       openIssue: jest.fn().mockResolvedValue(HELP),
+      resolveVerifiedIds: jest.fn(),
     } as unknown as jest.Mocked<SupportService>;
     service = new AssistanceService(repo, users, provider, support);
   });
@@ -114,7 +115,22 @@ describe('AssistanceService', () => {
         failedType: 'BVN',
         reason: 'DOB_MISMATCH',
         enteredValue: '22345678901',
+        attemptValues: ['BVN', '22345678901', DOB],
       });
+    });
+
+    it('resolves the open help issues of a BVN that now passes', async () => {
+      await service.identifyBvn('zenith', '22345678901', DOB);
+      expect(support.resolveVerifiedIds).toHaveBeenCalledWith('zenith', [
+        { type: 'BVN', value: '22345678901' },
+      ]);
+    });
+
+    it('still starts the session when help issues cannot be resolved', async () => {
+      support.resolveVerifiedIds.mockRejectedValue(new Error('database down'));
+      await expect(service.identifyNin('zenith', '71234568901', DOB)).resolves.toHaveProperty(
+        'token',
+      );
     });
 
     it('still answers INFORMATION_MISMATCH, without a link, when the issue cannot be logged', async () => {
@@ -144,8 +160,21 @@ describe('AssistanceService', () => {
         'INFORMATION_MISMATCH',
       );
       expect(support.openIssue).toHaveBeenCalledWith(
-        expect.objectContaining({ method: 'BVN_AND_NIN', reason: 'DIFFERENT_PEOPLE' }),
+        expect.objectContaining({
+          method: 'BVN_AND_NIN',
+          reason: 'DIFFERENT_PEOPLE',
+          // Both numbers and the date: a retry with exactly these is the same attempt.
+          attemptValues: ['BVN', '22345678901', 'NIN', '71234568901', DOB],
+        }),
       );
+    });
+
+    it('resolves the help issues of both numbers once they pass together', async () => {
+      await service.identifyBvnAndNin('zenith', '22345678901', '71234568901', DOB);
+      expect(support.resolveVerifiedIds).toHaveBeenCalledWith('zenith', [
+        { type: 'BVN', value: '22345678901' },
+        { type: 'NIN', value: '71234568901' },
+      ]);
     });
 
     it('rejects when either number fails', async () => {
@@ -173,6 +202,9 @@ describe('AssistanceService', () => {
       expect(repo.createSession).toHaveBeenCalledWith(
         expect.objectContaining({ method: 'LADDER_ID', providerRef: 'rec-bvn', userId: 'user-1' }),
       );
+      expect(support.resolveVerifiedIds).toHaveBeenCalledWith('zenith', [
+        { type: 'LADDER_ID', value: 'LID-ABCD-EFGH' },
+      ]);
     });
 
     it.each([

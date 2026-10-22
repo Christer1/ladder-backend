@@ -131,6 +131,18 @@ export const ERROR_CODES = {
     status: HttpStatus.UNAUTHORIZED,
     message: 'This chat has ended. Tap Get help to open it again.',
   },
+  HELP_CHAT_NOT_STARTED: {
+    status: HttpStatus.CONFLICT,
+    message: 'The customer has not opened the help chat yet.',
+  },
+
+  // ladder-agent-dashboard.
+  CASE_NOT_FOUND: { status: HttpStatus.NOT_FOUND, message: 'This case was not found.' },
+  CASE_RESOLVED: { status: HttpStatus.CONFLICT, message: 'This case is already resolved.' },
+  CASE_NOT_ESCALATABLE: {
+    status: HttpStatus.CONFLICT,
+    message: 'Only open cases can be escalated.',
+  },
   HELP_CHAT_UNAVAILABLE: {
     status: HttpStatus.SERVICE_UNAVAILABLE,
     message: 'Chat is not available right now. Please try again later.',
