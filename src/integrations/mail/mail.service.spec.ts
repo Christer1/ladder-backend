@@ -3,7 +3,7 @@ import { MailService } from './mail.service';
 
 const CONFIG: Record<string, string> = {
   BREVO_API_KEY: 'test-key',
-  EMAIL_FROM: 'official@bovaplay.com',
+  EMAIL_FROM: 'no-reply@example.com',
   EMAIL_FROM_NAME: 'Ladder',
 };
 
@@ -29,7 +29,7 @@ describe('MailService', () => {
     const body = JSON.parse(init.body);
     expect(url).toBe('https://api.brevo.com/v3/smtp/email');
     expect(init.headers['api-key']).toBe('test-key');
-    expect(body.sender).toEqual({ email: 'official@bovaplay.com', name: 'Ladder' });
+    expect(body.sender).toEqual({ email: 'no-reply@example.com', name: 'Ladder' });
     expect(body.to).toEqual([{ email: 'ada@example.com' }]);
     expect(body.htmlContent).toContain('482913');
     expect(body.textContent).toContain('10 minutes');

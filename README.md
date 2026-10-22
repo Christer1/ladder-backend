@@ -69,6 +69,7 @@ npm run dev              # http://localhost:4000/api/v1
 | `DIRECT_URL` | Direct database connection, used by migrations |
 | `ENCRYPTION_KEY` | 32 random bytes, base64, used to encrypt BVNs and NINs. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` |
 | `BREVO_API_KEY` | Sends the OTP emails |
+| `EMAIL_FROM` | Sender address for the OTP emails. It must be a sender verified in your Brevo account |
 | `WEB_ORIGIN` | URL of `ladder-web`, for CORS and cookies (default `http://localhost:3000`) |
 | `IDENTITY_PROVIDER` | Where BVNs and NINs are checked: `registry` (the seeded test table) or `mock` |
 
