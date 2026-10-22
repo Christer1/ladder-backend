@@ -1,7 +1,7 @@
 import { Body, Controller, HttpCode, HttpStatus, Post, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
-import { Response } from 'express';
+import { CookieOptions, Response } from 'express';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { ResponseMessage } from '../../common/decorators/response-message.decorator';
@@ -66,17 +66,24 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<void> {
     await this.authService.logout(user.sessionId);
-    res.clearCookie(this.cookieName, { path: '/' });
+    res.clearCookie(this.cookieName, this.cookieOptions);
   }
 
   private setSessionCookie(res: Response, session: SessionResponse): void {
     res.cookie(this.cookieName, session.token, {
-      httpOnly: true,
-      secure: this.config.get('NODE_ENV', { infer: true }) === 'production',
-      sameSite: 'lax',
-      path: '/',
+      ...this.cookieOptions,
       expires: session.expiresAt,
     });
+  }
+
+  private get cookieOptions(): CookieOptions {
+    const sameSite = this.config.get('COOKIE_SAME_SITE', { infer: true });
+    return {
+      httpOnly: true,
+      secure: sameSite === 'none' || this.config.get('NODE_ENV', { infer: true }) === 'production',
+      sameSite,
+      path: '/',
+    };
   }
 
   private get cookieName(): string {

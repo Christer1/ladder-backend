@@ -1,5 +1,6 @@
-import { plainToInstance, Type } from 'class-transformer';
+import { plainToInstance, Transform, Type } from 'class-transformer';
 import {
+  ArrayNotEmpty,
   IsEmail,
   IsIn,
   IsInt,
@@ -22,8 +23,18 @@ export class EnvironmentVariables {
   @Max(65535)
   PORT = 4000;
 
-  @IsUrl({ require_tld: false })
-  WEB_ORIGIN: string;
+  // Comma-separated list of ladder-web origins allowed by CORS (no trailing slash).
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string'
+      ? value
+          .split(',')
+          .map((origin) => origin.trim().replace(/\/$/, ''))
+          .filter(Boolean)
+      : value,
+  )
+  @IsUrl({ require_tld: false }, { each: true })
+  @ArrayNotEmpty()
+  WEB_ORIGIN: string[];
 
   @IsString()
   @IsNotEmpty()
@@ -45,6 +56,10 @@ export class EnvironmentVariables {
   @IsInt()
   @Min(1)
   SESSION_TTL_HOURS = 24;
+
+  // 'none' when ladder-web is served from a different site (e.g. Vercel + Render); forces Secure.
+  @IsIn(['lax', 'strict', 'none'])
+  COOKIE_SAME_SITE: 'lax' | 'strict' | 'none' = 'lax';
 
   // Both are test sources; a real vendor adapter is required in production.
   @IsIn(['mock', 'registry'])
