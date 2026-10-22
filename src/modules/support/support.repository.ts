@@ -31,6 +31,10 @@ export class SupportRepository {
     });
   }
 
+  setPreferredLanguage(id: string, preferredLanguage: string): Promise<AssistanceIssue> {
+    return this.prisma.assistanceIssue.update({ where: { id }, data: { preferredLanguage } });
+  }
+
   touchIssue(id: string): Promise<AssistanceIssue> {
     return this.prisma.assistanceIssue.update({ where: { id }, data: { updatedAt: new Date() } });
   }

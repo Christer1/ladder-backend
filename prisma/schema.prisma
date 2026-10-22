@@ -189,20 +189,22 @@ model AssistanceSession {
 // A failed assistance identify, logged so the customer can get help on WhatsApp. The partner screen
 // links to WhatsApp with the reference pre-typed; the first phone that sends it claims the issue.
 model AssistanceIssue {
-  id           String                @id @default(uuid())
-  reference    String                @unique
-  partnerId    String                @map("partner_id")
-  method       AssistanceMethod
+  id                String                @id @default(uuid())
+  reference         String                @unique
+  partnerId         String                @map("partner_id")
+  method            AssistanceMethod
   // BVN or NIN when one of them failed; null for Ladder IDs.
-  failedType   VerificationType?     @map("failed_type")
-  reason       AssistanceIssueReason
+  failedType        VerificationType?     @map("failed_type")
+  reason            AssistanceIssueReason
   // Only the last 4 characters of what was typed, e.g. *******8901.
-  maskedValue  String                @map("masked_value")
-  contactPhone String?               @map("contact_phone")
+  maskedValue       String                @map("masked_value")
+  contactPhone      String?               @map("contact_phone")
+  // Chosen in the help chat after Ladder's opening message, e.g. "Yoruba".
+  preferredLanguage String?               @map("preferred_language")
   // Until then an unclaimed reference can be claimed.
-  expiresAt    DateTime              @map("expires_at")
-  createdAt    DateTime              @default(now()) @map("created_at")
-  updatedAt    DateTime              @updatedAt @map("updated_at")
+  expiresAt         DateTime              @map("expires_at")
+  createdAt         DateTime              @default(now()) @map("created_at")
+  updatedAt         DateTime              @updatedAt @map("updated_at")
 
   messages WhatsAppMessage[]
 
